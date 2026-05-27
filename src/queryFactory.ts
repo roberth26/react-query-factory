@@ -4,30 +4,30 @@ import type {
   GetNextPageParamFunction,
   GetPreviousPageParamFunction,
   InfiniteData,
-  QueryMeta,
-  NotifyOnChangeProps,
+  QueryObserverOptions,
 } from '@tanstack/react-query';
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
-/** Subset of TanStack Query options that apply to both regular and infinite queries. */
-export interface StandardQueryOptions<TError = Error> {
-  enabled?: boolean;
-  staleTime?: number | ((query: { queryKey: QueryKey }) => number);
-  gcTime?: number;
-  retry?: boolean | number | ((failureCount: number, error: TError) => boolean);
-  retryDelay?: number | ((retryAttempt: number, error: TError) => number);
-  refetchOnWindowFocus?: boolean | 'always';
-  refetchOnReconnect?: boolean | 'always';
-  refetchOnMount?: boolean | 'always';
-  refetchInterval?: number | false | ((query: { queryKey: QueryKey }) => number | false);
-  refetchIntervalInBackground?: boolean;
-  networkMode?: 'online' | 'always' | 'offlineFirst';
-  notifyOnChangeProps?: NotifyOnChangeProps;
-  throwOnError?: boolean | ((error: TError) => boolean);
-  meta?: QueryMeta;
-  structuralSharing?: boolean;
-}
+/**
+ * All TanStack Query options that apply to both regular and infinite queries,
+ * derived directly from `QueryObserverOptions` so it stays in sync with TanStack.
+ *
+ * Fields owned by the factory (`queryKey`, `queryFn`, `select`) and internal
+ * implementation details (`behavior`, `_defaulted`, `_type`, `_optimisticResults`,
+ * `queryHash`) are omitted.
+ */
+export type StandardQueryOptions<TError = Error, TData = unknown> = Omit<
+  QueryObserverOptions<TData, TError, TData, TData, QueryKey>,
+  | 'queryKey'
+  | 'queryFn'
+  | 'select'
+  | 'behavior'
+  | '_defaulted'
+  | '_type'
+  | '_optimisticResults'
+  | 'queryHash'
+>;
 
 /**
  * Configuration passed to `queryFactory()`.
@@ -38,35 +38,51 @@ export interface StandardQueryOptions<TError = Error> {
  *   single `TSelected` value.
  * - Call `factory.infinite(params)` to get a `useInfiniteQuery`-compatible config
  *   where each virtual page is itself a crawl.
+ *
+ * When `getNextPageParam` is provided, `initialPageParam` is required. This
+ * mirrors TanStack's own API and ensures `TPageParam` is inferred from the
+ * concrete initial value (so `ctx.pageParam` in `queryFn` is typed correctly).
  */
-export interface QueryFactoryConfig<
+export type QueryFactoryConfig<
   TParams = void,
   TData = unknown,
   TError = Error,
   TSelected = TData,
   TPageParam = unknown,
   TCrawlOptions extends Record<string, unknown> = Record<string, unknown>,
-> extends StandardQueryOptions<TError> {
+> = StandardQueryOptions<TError, TData> & {
   /** Namespace segments. Params are appended as the final element at call time,
    *  giving a full key of [...namespace, 'infinite'?, params, crawlOptions?]. */
   queryKey: QueryKey;
   queryFn?: (
     params: TParams,
-    context: QueryFunctionContext<QueryKey, TPageParam>,
+    context: QueryFunctionContext<QueryKey, [unknown] extends [TPageParam] ? never : TPageParam>,
   ) => TData | Promise<TData>;
   select?: (data: TData) => TSelected;
-  /** TanStack v5 generic order: GetNextPageParamFunction<TPageParam, TData> */
-  getNextPageParam?: GetNextPageParamFunction<TPageParam, TData>;
-  getPreviousPageParam?: GetPreviousPageParamFunction<TPageParam, TData>;
-  initialPageParam?: TPageParam;
-  /** Called after each page to decide whether to keep crawling.
-   *  Receives the current combined result and the crawl options from the call site. */
-  shouldFetchNextPage?: (combined: TSelected | undefined, crawlOptions: TCrawlOptions) => boolean;
-  /** Reduces crawled pages incrementally into the final query result.
-   *  Called once per page; accumulator is undefined on the first call.
-   *  When set, enables crawling on both the regular and .infinite variants. */
-  reduce?: (accumulator: TSelected | undefined, page: TData) => TSelected;
-}
+} & (
+  | {
+      /** TanStack v5 generic order: GetNextPageParamFunction<TPageParam, TData> */
+      getNextPageParam: GetNextPageParamFunction<TPageParam, TData>;
+      /** Required alongside getNextPageParam — drives TPageParam inference so
+       *  ctx.pageParam in queryFn is typed as TPageParam, not unknown. */
+      initialPageParam: TPageParam;
+      getPreviousPageParam?: GetPreviousPageParamFunction<TPageParam, TData>;
+      /** Reduces crawled pages incrementally into the final query result.
+       *  Called once per page; accumulator is undefined on the first call.
+       *  When set, enables crawling on both the regular and .infinite variants. */
+      reduce?: (accumulator: TSelected | undefined, page: TData) => TSelected;
+      /** Called after each page to decide whether to keep crawling.
+       *  `combined` may be undefined when reduce is absent. */
+      shouldFetchNextPage?: (combined: TSelected | undefined, crawlOptions: TCrawlOptions) => boolean;
+    }
+  | {
+      getNextPageParam?: never;
+      initialPageParam?: never;
+      getPreviousPageParam?: never;
+      shouldFetchNextPage?: never;
+      reduce?: never;
+    }
+);
 
 /**
  * What `factory(params)` returns — pass directly to `useQuery()`.
@@ -78,7 +94,7 @@ export type ResolvedQueryOptions<
   TData = unknown,
   TError = Error,
   TSelected = TData,
-> = StandardQueryOptions<TError> & {
+> = StandardQueryOptions<TError, TData> & {
   queryKey: QueryKey;
   queryFn?: (context: QueryFunctionContext) => TData | Promise<TData>;
   select?: (data: TData) => TSelected;
@@ -96,7 +112,7 @@ export type ResolvedInfiniteOptions<
   TData = unknown,
   TError = Error,
   TPageParam = unknown,
-> = StandardQueryOptions<TError> & {
+> = Omit<StandardQueryOptions<TError, any>, 'persister'> & {
   queryKey: QueryKey;
   queryFn?: (context: QueryFunctionContext<QueryKey, TPageParam>) => TData | Promise<TData>;
   /** Structural guard: the InfiniteData parameter type makes this incompatible with useQuery,
@@ -148,7 +164,7 @@ interface NormalizedConfig {
   initialPageParam?: any;
   shouldFetchNextPage?: (combined: any, crawlOptions: Record<string, unknown>) => boolean;
   reduce?: (accumulator: any, page: any) => any;
-  standardOptions: StandardQueryOptions<any>;
+  standardOptions: StandardQueryOptions<any, any>;
 }
 
 /** Opaque envelope returned by the infinite crawling queryFn to TanStack. */
@@ -378,6 +394,34 @@ function buildFactory(cfg: NormalizedConfig): QueryFactory<any, any, any, any, a
 // ─── Overloads ───────────────────────────────────────────────────────────────
 
 /**
+ * Creates a standalone query factory with pagination and reduce. When `reduce` is
+ * present, `shouldFetchNextPage` receives `TSelected` (never undefined) because
+ * reduce always runs before the crawl-stop check.
+ */
+export function queryFactory<
+  TParams = void,
+  TData = unknown,
+  TError = Error,
+  TSelected = TData,
+  TPageParam = unknown,
+  TCrawlOptions extends Record<string, unknown> = Record<string, unknown>,
+>(
+  config: StandardQueryOptions<TError, TData> & {
+    queryKey: QueryKey;
+    queryFn?: (
+      params: TParams,
+      context: QueryFunctionContext<QueryKey, [unknown] extends [TPageParam] ? never : TPageParam>,
+    ) => TData | Promise<TData>;
+    select?: (data: TData) => TSelected;
+    getNextPageParam: GetNextPageParamFunction<TPageParam, TData>;
+    initialPageParam: TPageParam;
+    getPreviousPageParam?: GetPreviousPageParamFunction<TPageParam, TData>;
+    reduce: (accumulator: TSelected | undefined, page: TData) => TSelected;
+    shouldFetchNextPage?: (combined: TSelected, crawlOptions: TCrawlOptions) => boolean;
+  },
+): QueryFactory<TParams, TData, TError, TSelected, TPageParam, TCrawlOptions>;
+
+/**
  * Creates a standalone query factory from a config object.
  *
  * @example
@@ -458,13 +502,15 @@ export function queryFactory<
   TChildCrawlOptions extends Record<string, unknown> = TParentCrawlOptions,
 >(
   parent: QueryFactory<TParentParams, TData, any, TParentSelected, TPageParam, TParentCrawlOptions>,
-  config: Omit<
-    QueryFactoryConfig<TChildParams, TData, TError, TChildSelected, TPageParam, TChildCrawlOptions>,
-    'queryKey' | 'queryFn' | 'select'
-  > & {
+  config: StandardQueryOptions<TError, TData> & {
     queryKey?: QueryKey;
     queryFn?: never;
     select?: (data: TParentSelected) => TChildSelected;
+    getNextPageParam?: GetNextPageParamFunction<TPageParam, TData>;
+    initialPageParam?: TPageParam;
+    getPreviousPageParam?: GetPreviousPageParamFunction<TPageParam, TData>;
+    reduce?: (accumulator: TChildSelected | undefined, page: TData) => TChildSelected;
+    shouldFetchNextPage?: (combined: TChildSelected | undefined, crawlOptions: TChildCrawlOptions) => boolean;
   },
 ): QueryFactory<TChildParams, TData, TError, TChildSelected, TPageParam, TChildCrawlOptions>;
 

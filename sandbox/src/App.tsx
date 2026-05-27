@@ -794,16 +794,15 @@ function InvalidationDemo() {
 	return (
 		<div>
 			<p style={{ color: '#94a3b8', marginBottom: 12, lineHeight: 1.6 }}>
-				Calling a factory with no arguments returns just its namespace key.
-				Pass that to{' '}
+				Calling a factory with no arguments returns just its namespace key. Pass
+				that to{' '}
 				<code style={{ background: 'rgb(15, 23, 42)' }}>invalidateQueries</code>{' '}
 				and TanStack prefix-matches it against every cache entry under that
 				namespace — so one call marks{' '}
 				<code style={{ background: 'rgb(15, 23, 42)' }}>describeInstances</code>
 				,{' '}
-				<code style={{ background: 'rgb(15, 23, 42)' }}>runningInstances</code>
-				, and{' '}
-				<code style={{ background: 'rgb(15, 23, 42)' }}>findInstance</code>{' '}
+				<code style={{ background: 'rgb(15, 23, 42)' }}>runningInstances</code>,
+				and <code style={{ background: 'rgb(15, 23, 42)' }}>findInstance</code>{' '}
 				stale together. Click Stop on any instance to trigger a write and watch
 				all views refetch.
 			</p>

@@ -930,4 +930,26 @@ describe('queryFactory – types', () => {
     });
     expectTypeOf(child(undefined).select!).parameter(0).toEqualTypeOf<AdminUser[]>();
   });
+
+  it('context.pageParam is typed as the page param type when initialPageParam is provided', () => {
+    queryFactory({
+      queryKey: ['users'],
+      queryFn: (_params: void, ctx) => {
+        expectTypeOf(ctx.pageParam).toEqualTypeOf<Cursor>();
+        return { users: [], nextCursor: null } as PagedUsers;
+      },
+      getNextPageParam: (p: PagedUsers) => p.nextCursor,
+      initialPageParam: null as Cursor,
+    });
+  });
+
+  it('context.pageParam is not concretely typed when no pagination is configured', () => {
+    queryFactory({
+      queryKey: ['users'],
+      queryFn: (_params: void, ctx) => {
+        expectTypeOf(ctx.pageParam).not.toEqualTypeOf<Cursor>();
+        return [] as SomeUser[];
+      },
+    });
+  });
 });
