@@ -92,7 +92,7 @@ const describeInstances = queryFactory({
   // ...
   reduce: (acc, page): Instance[] => [...(acc ?? []), ...page.Reservations.flatMap(r => r.Instances)],
   shouldFetchNextPage: (instances, opts: { minResults?: number }) =>
-    opts.minResults != null && instances.length < opts.minResults,  // instances: Instance[], not Instance[] | undefined
+    opts.minResults != null && instances.length < opts.minResults,
 });
 
 // stop after accumulating at least 50 instances
