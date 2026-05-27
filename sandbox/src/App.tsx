@@ -449,12 +449,7 @@ const { data } = useQuery(describeInstances({ MaxResults: 5 }));
 							</span>
 						)}
 					</div>
-					<InstanceTable instances={data!.slice(0, 15)} />
-					{data!.length > 15 && (
-						<p style={{ color: '#475569', fontSize: 13, marginTop: 8 }}>
-							…{data!.length - 15} more rows hidden
-						</p>
-					)}
+					<InstanceTable instances={data!} />
 				</>
 			)}
 		</div>
