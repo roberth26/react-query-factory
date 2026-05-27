@@ -54,7 +54,7 @@ function InstanceList() {
 
 ## Crawling
 
-`DescribeInstances` is paginated. If you have more than 1000 instances, one call won't get them all. The standard approach — chaining `fetchNextPage` calls, accumulating results, checking `NextToken` — is correct but tedious to repeat everywhere.
+`DescribeInstances` is paginated. If you have more than 20 instances, one call won't get them all. The standard approach — chaining `fetchNextPage` calls, accumulating results, checking `NextToken` — is correct but tedious to repeat everywhere.
 
 Add `getNextPageParam` and `shouldFetchNextPage` to activate crawling — those two are the only required pieces. `initialPageParam` types `ctx.pageParam` in your `queryFn` (without it, `ctx.pageParam` is `never`). `reduce` folds crawled pages into a single value; without it the result is the last fetched page. **`shouldFetchNextPage`** is called after each page — return `true` to keep fetching, `false` to stop. Use `() => true` to walk every page:
 
@@ -79,7 +79,7 @@ const describeInstances = queryFactory({
 
 function InstanceList() {
   // one useQuery call; data is Instance[], not DescribeInstancesResponse[]
-  const { data } = useQuery(describeInstances({ MaxResults: 1000 }));
+  const { data } = useQuery(describeInstances({ MaxResults: 20 }));
 }
 ```
 
@@ -94,11 +94,11 @@ const describeInstances = queryFactory({
 });
 
 // fetch all pages
-const { data: all } = useQuery(describeInstances({ MaxResults: 1000 }));
+const { data: all } = useQuery(describeInstances({ MaxResults: 20 }));
 
-// stop after accumulating at least 50 instances
+// stop after accumulating at least 50 instances (≥ 3 API calls)
 const { data: partial } = useQuery(
-  describeInstances({ MaxResults: 1000 }, { minResults: 50 })
+  describeInstances({ MaxResults: 20 }, { minResults: 50 })
 );
 ```
 
@@ -117,9 +117,9 @@ const runningInstances = queryFactory(describeInstances, {
   select: instances => instances.filter(i => i.State?.Name === 'running'),
 });
 
-// query key:  ['ec2:DescribeInstances', { MaxResults: 1000 }]  (same cache entry as parent)
+// query key:  ['ec2:DescribeInstances', { MaxResults: 20 }]  (same cache entry as parent)
 // data:       Instance[] filtered to State.Name === 'running'
-const { data } = useQuery(runningInstances({ MaxResults: 1000 }));
+const { data } = useQuery(runningInstances({ MaxResults: 20 }));
 ```
 
 Parent and child `select` functions compose automatically — if the parent already has a `select`, the child's `select` receives the parent's output, not the raw API response.
@@ -135,10 +135,10 @@ const findInstance = queryFactory(describeInstances, {
     !instances.some(i => i.InstanceId === opts.instanceId),
 });
 
-// query key: ['ec2:DescribeInstances', 'find', { MaxResults: 100 }, { instanceId: 'i-0abc123' }]
+// query key: ['ec2:DescribeInstances', 'find', { MaxResults: 20 }, { instanceId: 'i-0abc123' }]
 // crawls pages until the target instance appears, then stops
 const { data } = useQuery(
-  findInstance({ MaxResults: 100 }, { instanceId: 'i-0abc123def456' })
+  findInstance({ MaxResults: 20 }, { instanceId: 'i-0abc123def456' })
 );
 ```
 
@@ -160,15 +160,15 @@ Every factory exposes a `.infinite()` method that returns `useInfiniteQuery`-com
 ```typescript
 const { data, fetchNextPage, hasNextPage } = useInfiniteQuery(
   // load 50 instances per UI page, each backed by up to 5 DescribeInstances calls
-  describeInstances.infinite({ MaxResults: 10 }, { minResults: 50 })
+  describeInstances.infinite({ MaxResults: 20 }, { minResults: 50 })
 );
 
 // data.pages is Instance[][], one array per virtual page
 ```
 
 The `.infinite()` key includes an `'infinite'` segment to keep it separate from the regular `useQuery` cache entry:
-- `describeInstances({ MaxResults: 10 })` → `['ec2:DescribeInstances', { MaxResults: 10 }]`
-- `describeInstances.infinite({ MaxResults: 10 })` → `['ec2:DescribeInstances', 'infinite', { MaxResults: 10 }]`
+- `describeInstances({ MaxResults: 20 })` → `['ec2:DescribeInstances', { MaxResults: 20 }]`
+- `describeInstances.infinite({ MaxResults: 20 })` → `['ec2:DescribeInstances', 'infinite', { MaxResults: 20 }]`
 
 ---
 
