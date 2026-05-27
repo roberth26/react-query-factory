@@ -4,7 +4,7 @@
 [![bundle size](https://img.shields.io/bundlephobia/minzip/@robohall/react-query-factory)](https://bundlephobia.com/package/@robohall/react-query-factory)
 [![license](https://img.shields.io/npm/l/@robohall/react-query-factory)](./LICENSE)
 
-A tiny wrapper around TanStack Query that turns a query definition into a reusable factory: consistent cache keys by default, automatic pagination crawling, and `useInfiniteQuery` support with no extra setup.
+A factory function for TanStack Query configs. Instead of calling `useQuery` with ad-hoc options, you define a factory once and call it anywhere — getting consistent cache keys, automatic pagination crawling, and `useInfiniteQuery` support for free. TanStack's API stays fully exposed.
 
 Zero runtime dependencies — all TanStack imports are type-only and erased at compile time.
 
