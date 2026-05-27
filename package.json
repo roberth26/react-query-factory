@@ -4,6 +4,12 @@
   "description": "A factory abstraction for TanStack Query (React Query) with composable keys, crawling support, and automatic infinite query generation",
   "author": "Robert Hall",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/roberth26/react-query-factory.git"
+  },
+  "bugs": "https://github.com/roberth26/react-query-factory/issues",
+  "homepage": "https://github.com/roberth26/react-query-factory#readme",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
