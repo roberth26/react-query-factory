@@ -223,7 +223,7 @@ Return type of `factory.infinite(params)`. Pass directly to `useInfiniteQuery()`
 
 ## Running the sandbox
 
-The sandbox contains five interactive demos using a mock paginated API: basic single-page fetch, full crawl, factory composition, infinite query with per-page crawling, and a target-search that stops the crawl early.
+The sandbox contains six interactive demos using a mock paginated API: basic single-page fetch, full crawl, factory composition, infinite query with per-page crawling, early-stop target search, and namespace-based cache invalidation.
 
 ```bash
 npm run sandbox
