@@ -1,4 +1,4 @@
-# react-query-factory
+# @robohall/react-query-factory
 
 TanStack Query is very good at caching. It is less good at deciding what your query keys should be, or at fetching every page of a cursor-paginated endpoint before your component has to think about it.
 
@@ -11,7 +11,7 @@ It has zero runtime dependencies — all TanStack Query imports are type-only an
 ## Installation
 
 ```bash
-npm install react-query-factory
+npm install @robohall/react-query-factory
 # peer dependency: @tanstack/react-query >= 5.0.0
 ```
 
@@ -27,7 +27,7 @@ import {
   DescribeInstancesCommand,
   type DescribeInstancesCommandInput,
 } from '@aws-sdk/client-ec2';
-import { queryFactory } from 'react-query-factory';
+import { queryFactory } from '@robohall/react-query-factory';
 import { useQuery } from '@tanstack/react-query';
 
 const ec2 = new EC2Client({ region: 'us-east-1' });

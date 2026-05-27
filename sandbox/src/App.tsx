@@ -883,7 +883,7 @@ export default function App() {
 						react-query-factory
 					</h1>
 					<p style={{ color: '#64748b', fontSize: 14 }}>
-						sandbox — 95 mock EC2 instances · us-east-1
+						sandbox — 95 mock EC2 instances
 					</p>
 				</div>
 
