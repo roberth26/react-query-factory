@@ -1,10 +1,8 @@
 # @robohall/react-query-factory
 
-TanStack Query is very good at caching. It is less good at deciding what your query keys should be, or at fetching every page of a cursor-paginated endpoint before your component has to think about it.
+A tiny wrapper around TanStack Query that turns a query definition into a reusable factory: consistent cache keys by default, automatic pagination crawling, and `useInfiniteQuery` support with no extra setup.
 
-This library wraps query definitions in a small factory function that handles composable key namespacing, automatic multi-page crawling, and `useInfiniteQuery` generation — so the part of your codebase that knows *what* to fetch stays separate from the part that knows *how React renders it*.
-
-It has zero runtime dependencies — all TanStack Query imports are type-only and erased at compile time.
+Zero runtime dependencies — all TanStack imports are type-only and erased at compile time.
 
 ---
 
