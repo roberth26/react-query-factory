@@ -38,7 +38,6 @@ const describeInstances = queryFactory({
   queryKey: ['ec2:DescribeInstances'],
   queryFn: (params: DescribeInstancesCommandInput, ctx) =>
     ec2.send(new DescribeInstancesCommand(params), { abortSignal: ctx.signal }),
-  staleTime: 30_000,
 });
 
 function InstanceList() {
@@ -46,7 +45,6 @@ function InstanceList() {
     describeInstances({ Filters: [{ Name: 'instance-state-name', Values: ['running'] }] })
   );
   // query key:  ['ec2:DescribeInstances', { Filters: [...] }]
-  // staleTime:  30 000 ms, no repetition required
 }
 ```
 
@@ -58,7 +56,7 @@ function InstanceList() {
 
 `DescribeInstances` is paginated. If you have more than 1000 instances, one call won't get them all. The standard approach — chaining `fetchNextPage` calls, accumulating results, checking `NextToken` — is correct but tedious to repeat everywhere.
 
-Add `getNextPageParam`, `initialPageParam`, and `reduce` to your factory config, and the generated `queryFn` will walk every page automatically, reducing them into a single flat array:
+Add `getNextPageParam` and `shouldFetchNextPage` to activate crawling — those two are the only required pieces. `initialPageParam` types `ctx.pageParam` in your `queryFn` (without it, `ctx.pageParam` is `never`). `reduce` folds crawled pages into a single value; without it the result is the last fetched page. **`shouldFetchNextPage`** is called after each page — return `true` to keep fetching, `false` to stop. Use `() => true` to walk every page:
 
 ```typescript
 import type { Instance, DescribeInstancesCommandInput } from '@aws-sdk/client-ec2';
@@ -72,11 +70,11 @@ const describeInstances = queryFactory({
     ),
   getNextPageParam: response => response.NextToken,
   initialPageParam: undefined as string | undefined,
+  shouldFetchNextPage: () => true,
   reduce: (acc, page): Instance[] => [
     ...(acc ?? []),
     ...(page.Reservations?.flatMap(r => r.Instances ?? []) ?? []),
   ],
-  staleTime: 30_000,
 });
 
 function InstanceList() {
@@ -85,18 +83,21 @@ function InstanceList() {
 }
 ```
 
-**`shouldFetchNextPage`** lets a call site stop the crawl early based on what has been accumulated so far. The arguments are the current reduced value and a `crawlOptions` object passed at call time. When `reduce` is present, `combined` is typed as `TSelected` (never undefined) because `reduce` always runs before this callback:
+`shouldFetchNextPage` also accepts a `crawlOptions` object passed at call time, letting each call site control the crawl independently:
 
 ```typescript
 const describeInstances = queryFactory({
   // ...
   reduce: (acc, page): Instance[] => [...(acc ?? []), ...page.Reservations.flatMap(r => r.Instances)],
   shouldFetchNextPage: (instances, opts: { minResults?: number }) =>
-    opts.minResults != null && instances.length < opts.minResults,
+    opts.minResults == null || instances.length < opts.minResults,
 });
 
+// fetch all pages
+const { data: all } = useQuery(describeInstances({ MaxResults: 1000 }));
+
 // stop after accumulating at least 50 instances
-const { data } = useQuery(
+const { data: partial } = useQuery(
   describeInstances({ MaxResults: 1000 }, { minResults: 50 })
 );
 ```
@@ -131,7 +132,7 @@ const findInstance = queryFactory(describeInstances, {
   // queryFn, getNextPageParam, initialPageParam, and reduce are all inherited
   shouldFetchNextPage: (instances, opts: { instanceId?: string }) =>
     opts.instanceId != null &&
-    !instances?.some(i => i.InstanceId === opts.instanceId),
+    !instances.some(i => i.InstanceId === opts.instanceId),
 });
 
 // query key: ['ec2:DescribeInstances', 'find', { MaxResults: 100 }, { instanceId: 'i-0abc123' }]
@@ -198,11 +199,11 @@ All fields except `reduce` and `shouldFetchNextPage` are the standard TanStack Q
 | `queryKey` | `QueryKey` | Namespace segments. Params are appended at call time. |
 | `queryFn` | `(params: TParams, ctx: QueryFunctionContext) => TData \| Promise<TData>` | Same as TanStack, with an extra leading `params` argument. |
 | `select` | `(data: TData) => TSelected` | Exact TanStack API. Composed automatically on child factories. |
-| `getNextPageParam` | `GetNextPageParamFunction<TPageParam, TData>` | Exact TanStack API. Providing this together with `initialPageParam` and `reduce` activates crawling. |
-| `initialPageParam` | `TPageParam` | Exact TanStack API. Required alongside `getNextPageParam` to enable crawling. |
+| `getNextPageParam` | `GetNextPageParamFunction<TPageParam, TData>` | Exact TanStack API. Required (with `shouldFetchNextPage`) to activate crawling. Required (with `initialPageParam`) for `.infinite()`. |
+| `initialPageParam` | `TPageParam` | Exact TanStack API. Drives `TPageParam` inference — without it `ctx.pageParam` is typed `never`. Required for `.infinite()` to work at runtime. |
 | `getPreviousPageParam` | `GetPreviousPageParamFunction<TPageParam, TData>` | Exact TanStack API. Passed through on `.infinite()`. |
-| `reduce` | `(acc: TSelected \| undefined, page: TData) => TSelected` | Library addition. Folds crawled pages into a single value; required for crawling and `.infinite()` crawling. |
-| `shouldFetchNextPage` | `(combined: TSelected, crawlOptions: TCrawlOptions) => boolean` when `reduce` is present; `(combined: TSelected \| undefined, ...) => boolean` otherwise | Library addition. Return `false` to stop the crawl early based on accumulated results. |
+| `shouldFetchNextPage` | `(combined: TSelected \| undefined, crawlOptions: TCrawlOptions) => boolean` | Library addition. **Required (with `getNextPageParam`) to activate crawling.** Called after each page — return `true` to keep fetching, `false` to stop. |
+| `reduce` | `(acc: TSelected \| undefined, page: TData) => TSelected` | Library addition. Optional. Folds crawled pages into a single `TSelected` value; when omitted the result is the last fetched page (`TSelected = TData`). |
 | + all `StandardQueryOptions` fields | | All options accepted by TanStack's `useQuery` / `useInfiniteQuery` except `queryKey`, `queryFn`, and `select` (which the factory owns). Includes `staleTime`, `gcTime`, `retry`, `retryOnMount`, `enabled`, `refetchOnWindowFocus`, `refetchOnReconnect`, `refetchOnMount`, `refetchInterval`, `refetchIntervalInBackground`, `networkMode`, `notifyOnChangeProps`, `throwOnError`, `structuralSharing`, `initialData`, `initialDataUpdatedAt`, `placeholderData`, `queryKeyHashFn`, `persister`, `meta`, `maxPages`, `experimental_prefetchInRender`. Function-form callbacks (e.g. `enabled: (query) => boolean`) are supported wherever TanStack accepts them. |
 
 ### `QueryFactory<TParams, TData, TError, TSelected, TPageParam, TCrawlOptions>`

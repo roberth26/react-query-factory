@@ -62,33 +62,24 @@ export type QueryFactoryConfig<
 		>,
 	) => TData | Promise<TData>;
 	select?: (data: TData) => TSelected;
-} & (
-		| {
-				/** TanStack v5 generic order: GetNextPageParamFunction<TPageParam, TData> */
-				getNextPageParam: GetNextPageParamFunction<TPageParam, TData>;
-				/** Required alongside getNextPageParam — drives TPageParam inference so
-				 *  ctx.pageParam in queryFn is typed as TPageParam, not unknown. */
-				initialPageParam: TPageParam;
-				getPreviousPageParam?: GetPreviousPageParamFunction<TPageParam, TData>;
-				/** Reduces crawled pages incrementally into the final query result.
-				 *  Called once per page; accumulator is undefined on the first call.
-				 *  When set, enables crawling on both the regular and .infinite variants. */
-				reduce?: (accumulator: TSelected | undefined, page: TData) => TSelected;
-				/** Called after each page to decide whether to keep crawling.
-				 *  `combined` may be undefined when reduce is absent. */
-				shouldFetchNextPage?: (
-					combined: TSelected | undefined,
-					crawlOptions: TCrawlOptions,
-				) => boolean;
-		  }
-		| {
-				getNextPageParam?: never;
-				initialPageParam?: never;
-				getPreviousPageParam?: never;
-				shouldFetchNextPage?: never;
-				reduce?: never;
-		  }
-	);
+	/** TanStack v5 generic order: GetNextPageParamFunction<TPageParam, TData> */
+	getNextPageParam?: GetNextPageParamFunction<TPageParam, TData>;
+	/** Drives TPageParam inference so ctx.pageParam in queryFn is typed as TPageParam.
+	 *  When omitted TPageParam stays unknown and ctx.pageParam is typed as never.
+	 *  Required for .infinite() to work correctly at runtime. */
+	initialPageParam?: TPageParam;
+	getPreviousPageParam?: GetPreviousPageParamFunction<TPageParam, TData>;
+	/** Reduces crawled pages incrementally into the final query result.
+	 *  Called once per page; accumulator is undefined on the first call.
+	 *  When omitted, the crawl result is the last fetched page (TSelected = TData). */
+	reduce?: (accumulator: TSelected | undefined, page: TData) => TSelected;
+	/** Called after each page to decide whether to keep crawling.
+	 *  Required (along with getNextPageParam) to activate crawling. */
+	shouldFetchNextPage?: (
+		combined: TSelected | undefined,
+		crawlOptions: TCrawlOptions,
+	) => boolean;
+};
 
 /**
  * What `factory(params)` returns — pass directly to `useQuery()`.
@@ -154,6 +145,7 @@ export interface QueryFactory<
 	TSelected = TData,
 	TPageParam = unknown,
 	TCrawlOptions extends Record<string, unknown> = Record<string, unknown>,
+	THasReduce extends boolean = boolean,
 > {
 	(
 		params?: TParams,
@@ -236,12 +228,10 @@ function buildCrawlingQueryFn<TData, TPageParam, TSelected>(
 	) => TData | Promise<TData>,
 	getNextPageParam: GetNextPageParamFunction<TPageParam, TData>,
 	initialPageParam: TPageParam,
-	shouldFetchNextPage:
-		| ((
-				combined: TSelected | undefined,
-				crawlOptions: Record<string, unknown>,
-		  ) => boolean)
-		| undefined,
+	shouldFetchNextPage: (
+		combined: TSelected | undefined,
+		crawlOptions: Record<string, unknown>,
+	) => boolean,
 	reduce:
 		| ((accumulator: TSelected | undefined, page: TData) => TSelected)
 		| undefined,
@@ -268,7 +258,7 @@ function buildCrawlingQueryFn<TData, TPageParam, TSelected>(
 
 			if (context.signal?.aborted) break;
 
-			if (shouldFetchNextPage && !shouldFetchNextPage(acc, crawlOptions)) break;
+			if (!shouldFetchNextPage(acc, crawlOptions)) break;
 
 			const nextParam = getNextPageParam(page, pages, currentParam, pageParams);
 			if (nextParam == null) break;
@@ -296,12 +286,10 @@ function buildInfiniteCrawlingQueryFn<TData, TPageParam, TSelected>(
 		ctx: QueryFunctionContext<any, any>,
 	) => TData | Promise<TData>,
 	getNextPageParam: GetNextPageParamFunction<TPageParam, TData>,
-	shouldFetchNextPage:
-		| ((
-				combined: TSelected | undefined,
-				crawlOptions: Record<string, unknown>,
-		  ) => boolean)
-		| undefined,
+	shouldFetchNextPage: (
+		combined: TSelected | undefined,
+		crawlOptions: Record<string, unknown>,
+	) => boolean,
 	reduce: (accumulator: TSelected | undefined, page: TData) => TSelected,
 ): (
 	params: any,
@@ -332,7 +320,7 @@ function buildInfiniteCrawlingQueryFn<TData, TPageParam, TSelected>(
 			nextBatchParam = nextParam ?? null;
 
 			if (nextParam == null) break;
-			if (shouldFetchNextPage && !shouldFetchNextPage(acc, crawlOptions)) break;
+			if (!shouldFetchNextPage(acc, crawlOptions)) break;
 
 			currentParam = nextParam as TPageParam;
 		}
@@ -344,7 +332,7 @@ function buildInfiniteCrawlingQueryFn<TData, TPageParam, TSelected>(
 
 function buildFactory(
 	cfg: NormalizedConfig,
-): QueryFactory<any, any, any, any, any, any> {
+): QueryFactory<any, any, any, any, any, any, any> {
 	const {
 		queryKey: namespace,
 		queryFn: rawQueryFn,
@@ -358,26 +346,28 @@ function buildFactory(
 	} = cfg;
 
 	const hasCrawling =
-		rawQueryFn !== undefined && getNextPageParam !== undefined;
+		rawQueryFn !== undefined &&
+		getNextPageParam !== undefined &&
+		shouldFetchNextPage !== undefined;
 
 	const hasInfiniteCrawling = hasCrawling && reduce !== undefined;
 
 	const crawlingFn = hasCrawling
 		? buildCrawlingQueryFn(
-				rawQueryFn,
-				getNextPageParam,
+				rawQueryFn!,
+				getNextPageParam!,
 				initialPageParam,
-				shouldFetchNextPage,
+				shouldFetchNextPage!,
 				reduce,
 			)
 		: undefined;
 
 	const infiniteCrawlingFn = hasInfiniteCrawling
 		? buildInfiniteCrawlingQueryFn(
-				rawQueryFn,
+				rawQueryFn!,
 				getNextPageParam!,
-				shouldFetchNextPage,
-				reduce,
+				shouldFetchNextPage!,
+				reduce!,
 			)
 		: undefined;
 
@@ -498,8 +488,8 @@ export function queryFactory<
 			>,
 		) => TData | Promise<TData>;
 		select?: (data: TData) => TSelected;
-		getNextPageParam: GetNextPageParamFunction<TPageParam, TData>;
-		initialPageParam: TPageParam;
+		getNextPageParam?: GetNextPageParamFunction<TPageParam, TData>;
+		initialPageParam?: TPageParam;
 		getPreviousPageParam?: GetPreviousPageParamFunction<TPageParam, TData>;
 		reduce: (accumulator: TSelected | undefined, page: TData) => TSelected;
 		shouldFetchNextPage?: (
@@ -507,7 +497,7 @@ export function queryFactory<
 			crawlOptions: TCrawlOptions,
 		) => boolean;
 	},
-): QueryFactory<TParams, TData, TError, TSelected, TPageParam, TCrawlOptions>;
+): QueryFactory<TParams, TData, TError, TSelected, TPageParam, TCrawlOptions, true>;
 
 /**
  * Creates a standalone query factory from a config object.
@@ -535,7 +525,7 @@ export function queryFactory<
 		TPageParam,
 		TCrawlOptions
 	>,
-): QueryFactory<TParams, TData, TError, TSelected, TPageParam, TCrawlOptions>;
+): QueryFactory<TParams, TData, TError, TSelected, TPageParam, TCrawlOptions, false>;
 
 /**
  * Creates a child factory that inherits the query key and standard options from
@@ -553,7 +543,7 @@ export function queryFactory<
 	TPageParam = unknown,
 	TCrawlOptions extends Record<string, unknown> = Record<string, unknown>,
 >(
-	parent: QueryFactory<TParentParams, any, any, any, any, any>,
+	parent: QueryFactory<TParentParams, any, any, any, any, any, any>,
 	config: Omit<
 		QueryFactoryConfig<
 			TChildParams,
@@ -563,12 +553,7 @@ export function queryFactory<
 			TPageParam,
 			TCrawlOptions
 		>,
-		| 'queryKey'
-		| 'getNextPageParam'
-		| 'getPreviousPageParam'
-		| 'initialPageParam'
-		| 'shouldFetchNextPage'
-		| 'reduce'
+		'queryKey' | 'queryFn'
 	> & {
 		queryKey?: QueryKey;
 		queryFn: NonNullable<
@@ -580,38 +565,15 @@ export function queryFactory<
 				TPageParam
 			>['queryFn']
 		>;
-	} & (
-			| {
-					getNextPageParam: GetNextPageParamFunction<TPageParam, TData>;
-					initialPageParam: TPageParam;
-					getPreviousPageParam?: GetPreviousPageParamFunction<
-						TPageParam,
-						TData
-					>;
-					shouldFetchNextPage?: (
-						combined: TChildSelected | undefined,
-						crawlOptions: TCrawlOptions,
-					) => boolean;
-					reduce?: (
-						accumulator: TChildSelected | undefined,
-						page: TData,
-					) => TChildSelected;
-			  }
-			| {
-					getNextPageParam?: never;
-					initialPageParam?: never;
-					getPreviousPageParam?: never;
-					shouldFetchNextPage?: never;
-					reduce?: never;
-			  }
-		),
+	},
 ): QueryFactory<
 	TChildParams,
 	TData,
 	TError,
 	TChildSelected,
 	TPageParam,
-	TCrawlOptions
+	TCrawlOptions,
+	boolean
 >;
 
 /**
@@ -631,6 +593,7 @@ export function queryFactory<
 	TPageParam = unknown,
 	TParentCrawlOptions extends Record<string, unknown> = Record<string, unknown>,
 	TChildCrawlOptions extends Record<string, unknown> = TParentCrawlOptions,
+	TParentHasReduce extends boolean = boolean,
 >(
 	parent: QueryFactory<
 		TParentParams,
@@ -638,7 +601,8 @@ export function queryFactory<
 		any,
 		TParentSelected,
 		TPageParam,
-		TParentCrawlOptions
+		TParentCrawlOptions,
+		TParentHasReduce
 	>,
 	config: StandardQueryOptions<TError, TData> & {
 		queryKey?: QueryKey;
@@ -652,7 +616,7 @@ export function queryFactory<
 			page: TData,
 		) => TChildSelected;
 		shouldFetchNextPage?: (
-			combined: TChildSelected | undefined,
+			combined: TParentHasReduce extends true ? TChildSelected : TChildSelected | undefined,
 			crawlOptions: TChildCrawlOptions,
 		) => boolean;
 	},
@@ -662,7 +626,8 @@ export function queryFactory<
 	TError,
 	TChildSelected,
 	TPageParam,
-	TChildCrawlOptions
+	TChildCrawlOptions,
+	TParentHasReduce
 >;
 
 // ─── Implementation ──────────────────────────────────────────────────────────
@@ -670,11 +635,11 @@ export function queryFactory<
 export function queryFactory(
 	configOrParent:
 		| QueryFactoryConfig<any, any, any, any, any, any>
-		| QueryFactory<any, any, any, any, any, any>,
+		| QueryFactory<any, any, any, any, any, any, any>,
 	childConfig?: Partial<QueryFactoryConfig<any, any, any, any, any, any>> & {
 		queryKey?: QueryKey;
 	},
-): QueryFactory<any, any, any, any, any, any> {
+): QueryFactory<any, any, any, any, any, any, any> {
 	if (childConfig !== undefined && typeof configOrParent === 'function') {
 		const result = (configOrParent as any)();
 		const parentCfg = result?.[FACTORY_CONFIG] as NormalizedConfig | undefined;

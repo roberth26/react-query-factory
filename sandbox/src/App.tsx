@@ -138,8 +138,14 @@ class EC2Client {
 
 const ec2 = new EC2Client({ region: 'us-east-1' });
 
-const describeInstances = queryFactory({
+const describeInstancesPage = queryFactory({
 	queryKey: ['ec2:DescribeInstances'],
+	queryFn: (params: DescribeInstancesCommandInput, ctx) =>
+		ec2.send(new DescribeInstancesCommand(params), { abortSignal: ctx.signal }),
+});
+
+const describeInstances = queryFactory({
+	queryKey: ['ec2:DescribeInstances', 'crawl'],
 	queryFn: (params: DescribeInstancesCommandInput, ctx) =>
 		ec2.send(
 			new DescribeInstancesCommand({ ...params, NextToken: ctx.pageParam }),
@@ -152,8 +158,7 @@ const describeInstances = queryFactory({
 		...page.Reservations.flatMap(r => r.Instances),
 	],
 	shouldFetchNextPage: (instances, opts: { minResults?: number }) =>
-		opts.minResults != null && (instances?.length ?? 0) < opts.minResults,
-	staleTime: 30_000,
+		opts.minResults == null || instances.length < opts.minResults,
 });
 
 const runningInstances = queryFactory(describeInstances, {
@@ -164,7 +169,7 @@ const findInstance = queryFactory(describeInstances, {
 	queryKey: ['find'],
 	shouldFetchNextPage: (instances, opts: { instanceId?: string }) =>
 		opts.instanceId != null &&
-		!instances?.some(i => i.InstanceId === opts.instanceId),
+		!instances.some(i => i.InstanceId === opts.instanceId),
 });
 
 // ── UI helpers ────────────────────────────────────────────────────────────────
@@ -342,7 +347,7 @@ const btn = (active = false, disabled = false) => ({
 
 function BasicDemo() {
 	const { data, isLoading, isFetching } = useQuery(
-		describeInstances({ MaxResults: 10 }),
+		describeInstancesPage({ MaxResults: 10 }),
 	);
 
 	return (
@@ -350,18 +355,17 @@ function BasicDemo() {
 			<p style={{ color: '#94a3b8', marginBottom: 12, lineHeight: 1.6 }}>
 				A single <code style={{ background: 'rgb(15, 23, 42)' }}>useQuery</code>{' '}
 				call with no{' '}
-				<code style={{ background: 'rgb(15, 23, 42)' }}>minResults</code> —
-				<code style={{ background: 'rgb(15, 23, 42)' }}>
-					shouldFetchNextPage
-				</code>{' '}
-				returns false immediately, so only one API call is made regardless of
-				how many pages exist.
+				<code style={{ background: 'rgb(15, 23, 42)' }}>shouldFetchNextPage</code>{' '}
+				— no crawling, one API call regardless of how many pages exist.
 			</p>
 			<CodeSnippet
-				code={`const { data } = useQuery(
-  describeInstances({ MaxResults: 10 })
-  // no minResults → shouldFetchNextPage returns false → 1 API call
-);`}
+				code={`const describeInstancesPage = queryFactory({
+  queryKey: ['ec2:DescribeInstances'],
+  queryFn: (params: DescribeInstancesCommandInput, ctx) =>
+    ec2.send(new DescribeInstancesCommand(params), { abortSignal: ctx.signal }),
+});
+
+const { data } = useQuery(describeInstancesPage({ MaxResults: 10 }));`}
 			/>
 			{isLoading ? (
 				<p style={{ color: '#64748b' }}>Fetching…</p>
@@ -375,14 +379,17 @@ function BasicDemo() {
 							marginBottom: 12,
 						}}
 					>
-						<Badge>{data!.length} instances (1 API call)</Badge>
+						<Badge>
+							{data!.Reservations.flatMap(r => r.Instances).length} instances (1
+							API call)
+						</Badge>
 						{isFetching && (
 							<span style={{ color: '#64748b', fontSize: 13 }}>
 								re-fetching…
 							</span>
 						)}
 					</div>
-					<InstanceTable instances={data!} />
+					<InstanceTable instances={data!.Reservations.flatMap(r => r.Instances)} />
 				</>
 			)}
 		</div>
@@ -391,33 +398,36 @@ function BasicDemo() {
 
 function CrawlingDemo() {
 	const { data, isLoading, isFetching } = useQuery(
-		describeInstances(
-			{ MaxResults: 5 },
-			{ minResults: Number.MAX_SAFE_INTEGER },
-		),
+		describeInstances({ MaxResults: 5 }),
 	);
 
 	return (
 		<div>
 			<p style={{ color: '#94a3b8', marginBottom: 12, lineHeight: 1.6 }}>
-				Passing{' '}
-				<code style={{ background: 'rgb(15, 23, 42)' }}>
-					minResults: Infinity
-				</code>{' '}
-				keeps{' '}
-				<code style={{ background: 'rgb(15, 23, 42)' }}>
-					shouldFetchNextPage
-				</code>{' '}
-				returning true until the API has no more pages. The factory crawls all
-				19 pages and reduces them into one flat array.
+				<code style={{ background: 'rgb(15, 23, 42)' }}>shouldFetchNextPage</code>{' '}
+				returns <code style={{ background: 'rgb(15, 23, 42)' }}>true</code> until
+				the API has no more pages. The factory crawls all 19 pages and reduces
+				them into one flat array.
 			</p>
 			<CodeSnippet
-				code={`const { data } = useQuery(
-  describeInstances(
-    { MaxResults: 5 },
-    { minResults: Infinity }, // crawl until all pages exhausted
-  )
-);
+				code={`const describeInstances = queryFactory({
+  queryKey: ['ec2:DescribeInstances', 'crawl'],
+  queryFn: (params: DescribeInstancesCommandInput, ctx) =>
+    ec2.send(
+      new DescribeInstancesCommand({ ...params, NextToken: ctx.pageParam }),
+      { abortSignal: ctx.signal },
+    ),
+  getNextPageParam: response => response.NextToken,
+  initialPageParam: undefined as string | undefined,
+  reduce: (acc, page): Instance[] => [
+    ...(acc ?? []),
+    ...page.Reservations.flatMap(r => r.Instances),
+  ],
+  shouldFetchNextPage: (instances, opts: { minResults?: number }) =>
+    opts.minResults == null || instances.length < opts.minResults,
+});
+
+const { data } = useQuery(describeInstances({ MaxResults: 5 }));
 // data is Instance[] — all 95 instances, no pagination state`}
 			/>
 			{isLoading ? (
@@ -474,8 +484,9 @@ function CompositionDemo() {
   select: instances => instances.filter(i => i.State.Name === 'running'),
 });
 
-useQuery(describeInstances({ MaxResults: 20 })) // → Instance[]
-useQuery(runningInstances({ MaxResults: 20 }))  // → running Instance[] (same cache entry)`}
+// both crawl all pages — same cache entry, different views
+useQuery(describeInstances({ MaxResults: 20 })) // → Instance[] (all 95)
+useQuery(runningInstances({ MaxResults: 20 }))  // → running Instance[] (same fetch)`}
 			/>
 			<div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
 				<div>
@@ -695,7 +706,7 @@ function FindInstanceDemo() {
   queryKey: ['find'],
   // queryFn, getNextPageParam, initialPageParam, reduce all inherited
   shouldFetchNextPage: (instances, opts: { instanceId?: string }) =>
-    opts.instanceId != null && !instances?.some(i => i.InstanceId === opts.instanceId),
+    opts.instanceId != null && !instances.some(i => i.InstanceId === opts.instanceId),
 });
 
 useQuery({ ...findInstance({ MaxResults: 5 }, { instanceId }), enabled: !!instanceId })`}
@@ -809,12 +820,12 @@ function InvalidationDemo() {
 			<CodeSnippet
 				code={`// After any write that touches EC2 instances:
 await queryClient.invalidateQueries(describeInstances())
-// describeInstances()  →  { queryKey: ['ec2:DescribeInstances'] }
+// describeInstances()  →  { queryKey: ['ec2:DescribeInstances', 'crawl'] }
 
 // TanStack prefix-matches and marks stale:
-//   ['ec2:DescribeInstances', ...]          ← describeInstances
-//   ['ec2:DescribeInstances', ...]          ← runningInstances (same entry, select differs)
-//   ['ec2:DescribeInstances', 'find', ...]  ← findInstance`}
+//   ['ec2:DescribeInstances', 'crawl', ...]          ← describeInstances
+//   ['ec2:DescribeInstances', 'crawl', ...]          ← runningInstances (same entry, select differs)
+//   ['ec2:DescribeInstances', 'crawl', 'find', ...]  ← findInstance`}
 			/>
 
 			{isLoading ? (

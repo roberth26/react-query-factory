@@ -122,7 +122,7 @@ describe('queryFactory – .infinite', () => {
     const factory = queryFactory({
       queryKey: ['users'],
       queryFn: spy,
-      getNextPageParam: (): null => null,
+      getNextPageParam: () => null,
       initialPageParam: null,
     });
 
@@ -131,7 +131,7 @@ describe('queryFactory – .infinite', () => {
   });
 
   it('exposes getNextPageParam and initialPageParam', () => {
-    const gnp = (p: PagedUsers): string | null | undefined => p.nextCursor;
+    const gnp = (p: PagedUsers) => p.nextCursor;
     const factory = queryFactory({
       queryKey: ['users'],
       queryFn: async () => ({ users: [], nextCursor: null }) as PagedUsers,
@@ -145,7 +145,7 @@ describe('queryFactory – .infinite', () => {
   });
 
   it('wraps getNextPageParam with shouldFetchNextPage', () => {
-    const gnp = vi.fn((_p: PagedUsers): string | null | undefined => 'next');
+    const gnp = vi.fn((_p: PagedUsers) => 'next');
     const sfnp = vi.fn((_combined: PagedUsers | undefined, _opts: Record<string, unknown>) => false);
 
     const factory = queryFactory({
@@ -205,7 +205,7 @@ describe('queryFactory – .infinite', () => {
 // ---------------------------------------------------------------------------
 
 describe('queryFactory – crawling', () => {
-  it('auto-paginates through all pages', async () => {
+  it('auto-paginates through all pages when shouldFetchNextPage always returns true', async () => {
     let call = 0;
     const pages: PagedUsers[] = [
       { users: [{ id: '1', name: 'Alice' }], nextCursor: 'p2' },
@@ -217,6 +217,7 @@ describe('queryFactory – crawling', () => {
       queryKey: ['users'],
       queryFn: pageFn,
       getNextPageParam: p => p.nextCursor,
+      shouldFetchNextPage: () => true,
       initialPageParam: null as string | null,
     });
 
@@ -253,6 +254,7 @@ describe('queryFactory – crawling', () => {
       queryKey: ['users'],
       queryFn: async () => page,
       getNextPageParam: p => p.nextCursor,
+      shouldFetchNextPage: () => true,
       initialPageParam: null as string | null,
       reduce,
     });
@@ -289,7 +291,8 @@ describe('queryFactory – crawling', () => {
     const factory = queryFactory({
       queryKey: ['users'],
       queryFn: async () => ({ users: [{ id: '1', name: 'Alice' }], nextCursor: null }) as PagedUsers,
-      getNextPageParam: (p: PagedUsers) => p.nextCursor,
+      getNextPageParam: p => p.nextCursor,
+      shouldFetchNextPage: () => true,
       initialPageParam: null as string | null,
       reduce: (acc, p): User[] => [...(acc ?? []), ...p.users],
     });
@@ -305,6 +308,7 @@ describe('queryFactory – crawling', () => {
       queryKey: ['users'],
       queryFn: pageFn,
       getNextPageParam: p => p.nextCursor,
+      shouldFetchNextPage: () => true,
       initialPageParam: null as string | null,
       reduce: (acc, p): User[] => [...(acc ?? []), ...p.users],
     });
@@ -325,7 +329,7 @@ describe('queryFactory – crawling', () => {
         if (call++ === 0) controller.abort();
         return page;
       },
-      getNextPageParam: (p: PagedUsers) => p.nextCursor,
+      getNextPageParam: p => p.nextCursor,
       shouldFetchNextPage: () => true,
       initialPageParam: null as string | null,
       reduce: (acc, p): User[] => [...(acc ?? []), ...p.users],
@@ -343,6 +347,7 @@ describe('queryFactory – crawling', () => {
       queryKey: ['users'],
       queryFn: async () => { throw new Error('network error'); },
       getNextPageParam: (p: PagedUsers) => p.nextCursor,
+      shouldFetchNextPage: () => true,
       initialPageParam: null as string | null,
       reduce: (acc, p): User[] => [...(acc ?? []), ...p.users],
     });
@@ -358,7 +363,8 @@ describe('queryFactory – crawling', () => {
         if (call++ === 1) throw new Error('page 2 failed');
         return { users: [{ id: '1', name: 'Alice' }], nextCursor: 'p2' } as PagedUsers;
       },
-      getNextPageParam: (p: PagedUsers) => p.nextCursor,
+      getNextPageParam: p => p.nextCursor,
+      shouldFetchNextPage: () => true,
       initialPageParam: null as string | null,
       reduce: (acc, p): User[] => [...(acc ?? []), ...p.users],
     });
@@ -373,7 +379,7 @@ describe('queryFactory – crawling', () => {
     const factory = queryFactory({
       queryKey: ['users'],
       queryFn: pageFn,
-      getNextPageParam: (): null => null,
+      getNextPageParam: () => null,
       shouldFetchNextPage: () => false,
       initialPageParam: null,
     });
@@ -500,6 +506,7 @@ describe('queryFactory – composition', () => {
     const child = queryFactory(parent, {
       queryFn: childFn,
       getNextPageParam: p => p.nextCursor,
+      shouldFetchNextPage: () => true,
       initialPageParam: null as string | null,
     });
 
@@ -507,9 +514,8 @@ describe('queryFactory – composition', () => {
     expect(childFn).toHaveBeenCalledTimes(2);
   });
 
-  it('child with new queryFn: getNextPageParam without initialPageParam is a type error', () => {
+  it('child with new queryFn: getNextPageParam without initialPageParam is valid', () => {
     const parent = queryFactory({ queryKey: ['users'], queryFn: async () => [] as User[] });
-    // @ts-expect-error — getNextPageParam requires initialPageParam in the same branch
     queryFactory(parent, {
       queryFn: async () => [] as User[],
       getNextPageParam: () => null,
@@ -598,7 +604,7 @@ describe('queryFactory – key isolation', () => {
     const factory = queryFactory({
       queryKey: ['users'],
       queryFn: async () => [] as User[],
-      getNextPageParam: (): null => null,
+      getNextPageParam: () => null,
       initialPageParam: null,
     });
 
@@ -611,7 +617,7 @@ describe('queryFactory – key isolation', () => {
     const factory = queryFactory({
       queryKey: ['users'],
       queryFn: async () => [] as User[],
-      getNextPageParam: (): null => null,
+      getNextPageParam: () => null,
       initialPageParam: null,
     });
 
@@ -701,6 +707,7 @@ describe('queryFactory – .infinite crawling', () => {
       queryKey: ['users'],
       queryFn: pageFn,
       getNextPageParam: p => p.nextCursor,
+      shouldFetchNextPage: () => true,
       initialPageParam: null as string | null,
       reduce: (acc, p): User[] => [...(acc ?? []), ...p.users],
     });
@@ -809,7 +816,8 @@ describe('queryFactory – .infinite crawling', () => {
     const factory = queryFactory({
       queryKey: ['users'],
       queryFn: async () => ({ users: [{ id: '1', name: 'Alice' }], nextCursor: null }) as PagedUsers,
-      getNextPageParam: (p: PagedUsers) => p.nextCursor,
+      getNextPageParam: p => p.nextCursor,
+      shouldFetchNextPage: () => true,
       initialPageParam: null as string | null,
       reduce: (acc, p): User[] => [...(acc ?? []), ...p.users],
     });
@@ -824,6 +832,7 @@ describe('queryFactory – .infinite crawling', () => {
       queryKey: ['users'],
       queryFn: async () => ({ users: [], nextCursor: null }) as PagedUsers,
       getNextPageParam: p => p.nextCursor,
+      shouldFetchNextPage: () => true,
       initialPageParam: null as string | null,
       reduce: (acc, p): User[] => [...(acc ?? []), ...p.users],
     });
@@ -841,7 +850,8 @@ describe('queryFactory – .infinite crawling', () => {
         if (call++ === 1) throw new Error('page 2 failed');
         return { users: [{ id: '1', name: 'Alice' }], nextCursor: 'p2' } as PagedUsers;
       },
-      getNextPageParam: (p: PagedUsers) => p.nextCursor,
+      getNextPageParam: p => p.nextCursor,
+      shouldFetchNextPage: () => true,
       initialPageParam: null as string | null,
       reduce: (acc, p): User[] => [...(acc ?? []), ...p.users],
     });
@@ -857,6 +867,7 @@ describe('queryFactory – .infinite crawling', () => {
       queryKey: ['users'],
       queryFn: async () => ({ users: [], nextCursor: null }) as PagedUsers,
       getNextPageParam: p => p.nextCursor,
+      shouldFetchNextPage: () => true,
       getPreviousPageParam: gpp,
       initialPageParam: null as string | null,
       reduce: (acc, p): User[] => [...(acc ?? []), ...p.users],
@@ -943,6 +954,18 @@ describe('queryFactory – types', () => {
     });
   });
 
+  it('context.pageParam is inferred from getNextPageParam when initialPageParam is absent', () => {
+    queryFactory({
+      queryKey: ['users'],
+      queryFn: (_params: void, ctx) => {
+        // TPageParam is inferred from getNextPageParam's return type (string | null → string)
+        expectTypeOf(ctx.pageParam).toEqualTypeOf<string>();
+        return { users: [], nextCursor: null } as PagedUsers;
+      },
+      getNextPageParam: (p: PagedUsers) => p.nextCursor,
+    });
+  });
+
   it('context.pageParam is not concretely typed when no pagination is configured', () => {
     queryFactory({
       queryKey: ['users'],
@@ -957,9 +980,9 @@ describe('queryFactory – types', () => {
     queryFactory({
       queryKey: ['users'],
       queryFn: (_params: void) => ({ users: [], nextCursor: null }) as PagedUsers,
-      getNextPageParam: (p: PagedUsers) => p.nextCursor,
+      getNextPageParam: p => p.nextCursor,
       initialPageParam: null as Cursor,
-      reduce: (_acc: SomeUser[] | undefined, page: PagedUsers): SomeUser[] => page.users,
+      reduce: (_acc, page): SomeUser[] => page.users,
       shouldFetchNextPage: (combined) => {
         expectTypeOf(combined).toEqualTypeOf<SomeUser[]>();
         return combined.length < 10;
@@ -971,7 +994,7 @@ describe('queryFactory – types', () => {
     queryFactory({
       queryKey: ['users'],
       queryFn: (_params: void) => ({ users: [], nextCursor: null }) as PagedUsers,
-      getNextPageParam: (p: PagedUsers) => p.nextCursor,
+      getNextPageParam: p => p.nextCursor,
       initialPageParam: null as Cursor,
       shouldFetchNextPage: (combined) => {
         expectTypeOf(combined).toEqualTypeOf<PagedUsers | undefined>();
@@ -984,15 +1007,16 @@ describe('queryFactory – types', () => {
     const parent = queryFactory({
       queryKey: ['users'],
       queryFn: (_params: void) => ({ users: [], nextCursor: null }) as PagedUsers,
-      getNextPageParam: (p: PagedUsers) => p.nextCursor,
+      getNextPageParam: p => p.nextCursor,
       initialPageParam: null as Cursor,
-      reduce: (_acc: SomeUser[] | undefined, page: PagedUsers): SomeUser[] => page.users,
+      reduce: (_acc, page): SomeUser[] => page.users,
     });
     queryFactory(parent, {
       shouldFetchNextPage: (combined) => {
         expectTypeOf(combined).not.toBeAny();
-        expectTypeOf(combined).toEqualTypeOf<SomeUser[] | undefined>();
-        return true;
+        // parent has reduce → combined is TChildSelected, not | undefined
+        expectTypeOf(combined).toEqualTypeOf<SomeUser[]>();
+        return combined.length > 0;
       },
     });
   });
