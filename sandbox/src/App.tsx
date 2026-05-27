@@ -667,13 +667,11 @@ function InfiniteWithCrawlingDemo() {
 function FindInstanceDemo() {
 	const [inputValue, setInputValue] = useState('');
 	const [targetId, setTargetId] = useState<string | null>(null);
+	const instanceId = targetId ?? undefined;
 
 	const { data, isLoading } = useQuery({
-		...findInstance(
-			{ MaxResults: 5 },
-			targetId != null ? { instanceId: targetId } : undefined,
-		),
-		enabled: targetId != null,
+		...findInstance({ MaxResults: 5 }, { instanceId }),
+		enabled: !!instanceId,
 	});
 
 	const found =

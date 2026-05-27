@@ -2,6 +2,7 @@ import { describe, it, expect, vi, expectTypeOf } from 'vitest';
 import type {
   UseQueryOptions,
   UseInfiniteQueryOptions,
+  InfiniteData,
   QueryKey,
 } from '@tanstack/react-query';
 import { queryFactory } from '../queryFactory.js';
@@ -161,6 +162,26 @@ describe('queryFactory – .infinite', () => {
 
     expect(sfnp).toHaveBeenCalled();
     expect(gnp).not.toHaveBeenCalled();
+  });
+
+  it('when shouldFetchNextPage returns true, getNextPageParam is called and its return value is used', () => {
+    const gnp = vi.fn((_p: PagedUsers) => 'next-cursor');
+    const sfnp = vi.fn(() => true);
+
+    const factory = queryFactory({
+      queryKey: ['users'],
+      queryFn: async () => ({ users: [], nextCursor: 'next-cursor' }) as PagedUsers,
+      getNextPageParam: gnp,
+      shouldFetchNextPage: sfnp,
+      initialPageParam: null as string | null,
+    });
+
+    const page: PagedUsers = { users: [], nextCursor: 'next-cursor' };
+    const result = factory.infinite(undefined).getNextPageParam!(page, [page], null, [null]);
+
+    expect(sfnp).toHaveBeenCalled();
+    expect(gnp).toHaveBeenCalled();
+    expect(result).toBe('next-cursor');
   });
 
   it('passes getPreviousPageParam through to infinite options', () => {
@@ -370,6 +391,20 @@ describe('queryFactory – crawling', () => {
     });
 
     await expect(factory(undefined).queryFn!(ctx)).rejects.toThrow('page 2 failed');
+  });
+
+  it('shouldFetchNextPage receives undefined as combined when reduce is absent', async () => {
+    const sfnp = vi.fn(() => false);
+    const factory = queryFactory({
+      queryKey: ['users'],
+      queryFn: async () => ({ users: [{ id: '1', name: 'Alice' }], nextCursor: 'next' }) as PagedUsers,
+      getNextPageParam: p => p.nextCursor,
+      shouldFetchNextPage: sfnp,
+      initialPageParam: null as string | null,
+    });
+
+    await factory(undefined).queryFn!(ctx);
+    expect(sfnp).toHaveBeenCalledWith(undefined, {});
   });
 
   it('infinite variant uses the raw single-page queryFn, not the crawling wrapper', async () => {
@@ -625,6 +660,18 @@ describe('queryFactory – key isolation', () => {
       .toEqual(['users', 'infinite', { minResults: 30 }]);
     expect(factory.infinite(undefined).queryKey).toEqual(['users', 'infinite']);
   });
+
+  it('crawlOptions with all-undefined values are not appended to the key', () => {
+    const factory = queryFactory({
+      queryKey: ['users'],
+      queryFn: async () => [] as User[],
+    });
+
+    expect(factory(undefined, { minResults: undefined }).queryKey)
+      .toEqual(factory(undefined).queryKey);
+    expect(factory.infinite(undefined, { minResults: undefined }).queryKey)
+      .toEqual(factory.infinite(undefined).queryKey);
+  });
 });
 
 describe('queryFactory – Record<string, unknown>', () => {
@@ -686,6 +733,23 @@ describe('queryFactory – Record<string, unknown>', () => {
     factory.infinite(undefined).getNextPageParam!(page, [page], null, [null]);
 
     expect(sfnp).toHaveBeenCalledWith(page, {});
+  });
+
+  it('applies select before passing to shouldFetchNextPage on .infinite variant (no reduce)', () => {
+    const sfnp = vi.fn((_combined: User[] | undefined, _opts: Record<string, unknown>) => false);
+    const factory = queryFactory({
+      queryKey: ['users'],
+      queryFn: async () => ({ users: [{ id: '1', name: 'Alice' }], nextCursor: null }) as PagedUsers,
+      getNextPageParam: p => p.nextCursor,
+      select: (p: PagedUsers) => p.users,
+      shouldFetchNextPage: sfnp,
+      initialPageParam: null as string | null,
+    });
+
+    const page: PagedUsers = { users: [{ id: '1', name: 'Alice' }], nextCursor: null };
+    factory.infinite(undefined).getNextPageParam!(page, [page], null, [null]);
+
+    expect(sfnp).toHaveBeenCalledWith([{ id: '1', name: 'Alice' }], {});
   });
 });
 
@@ -825,6 +889,31 @@ describe('queryFactory – .infinite crawling', () => {
     await expect(
       factory.infinite(undefined).queryFn!({ signal: controller.signal, meta: undefined, pageParam: null } as any),
     ).rejects.toThrow('Aborted');
+  });
+
+  it('returns partial data (no throw) when signal aborts mid-crawl after at least one page', async () => {
+    const controller = new AbortController();
+    let call = 0;
+
+    const factory = queryFactory({
+      queryKey: ['users'],
+      queryFn: async () => {
+        const page = { users: [{ id: String(call + 1), name: `u${call + 1}` }], nextCursor: 'next' } as PagedUsers;
+        if (call++ === 0) controller.abort();
+        return page;
+      },
+      getNextPageParam: p => p.nextCursor,
+      shouldFetchNextPage: () => true,
+      initialPageParam: null as string | null,
+      reduce: (acc, p): User[] => [...(acc ?? []), ...p.users],
+    });
+
+    const envelope = await factory.infinite(undefined).queryFn!({
+      ...ctx,
+      signal: controller.signal,
+      pageParam: null,
+    } as any);
+    expect((envelope as any).data).toEqual([{ id: '1', name: 'u1' }]);
   });
 
   it('handles an empty page — returns empty data and null nextPageParam', async () => {
@@ -1019,6 +1108,26 @@ describe('queryFactory – types', () => {
         return combined.length > 0;
       },
     });
+  });
+
+  it('select on ResolvedInfiniteOptions returns InfiniteData<TSelected>, not any (prevents inference poisoning)', () => {
+    // ResolvedInfiniteOptions.select previously had return type `any`. TS6 uses the
+    // any-returning optional field as a candidate for inferring TResult when the caller
+    // spreads the options and adds their own select, poisoning the result type.
+    // The fix carries TResult = InfiniteData<TSelected, TPageParam> through the type so
+    // TanStack can infer the correct data type for both direct-pass and spread-with-select.
+    const factory = queryFactory({
+      queryKey: ['users'],
+      queryFn: async () => ({ users: [] as SomeUser[], nextCursor: null }),
+      getNextPageParam: p => p.nextCursor,
+      initialPageParam: null as null,
+      reduce: (_acc, p): SomeUser[] => [...(_acc ?? []), ...p.users],
+      shouldFetchNextPage: () => true,
+    });
+
+    type Opts = ReturnType<typeof factory.infinite>;
+    type SelectReturn = ReturnType<NonNullable<Opts['select']>>;
+    expectTypeOf<SelectReturn>().toEqualTypeOf<InfiniteData<SomeUser[], null>>();
   });
 
   it('StandardQueryOptions fields are accepted on factory config', () => {

@@ -102,21 +102,27 @@ export type ResolvedQueryOptions<
 /**
  * What `factory.infinite(params)` returns — pass directly to `useInfiniteQuery()`.
  *
- * The `select` field expects `InfiniteData<TData, TPageParam>`, which is a structural
- * guard making this type incompatible with `useQuery`.
+ * The `select` field input type (`InfiniteData<TData, TPageParam>`) is a structural
+ * guard making this type incompatible with `useQuery`, whose select expects `(data: TData)`.
+ *
+ * `TResult` is the concrete type that `useInfiniteQuery` will use as its `TData` — i.e.
+ * what `select` returns (or `InfiniteData<TData, TPageParam>` when no select is set).
+ * Carrying it explicitly avoids returning `any`, which would poison TResult inference
+ * in TypeScript 6 when callers spread this type and add their own `select`.
  */
 export type ResolvedInfiniteOptions<
 	TData = unknown,
 	TError = Error,
 	TPageParam = unknown,
+	TResult = InfiniteData<TData, TPageParam>,
 > = Omit<StandardQueryOptions<TError, any>, 'persister'> & {
 	queryKey: QueryKey;
 	queryFn?: (
 		context: QueryFunctionContext<QueryKey, TPageParam>,
 	) => TData | Promise<TData>;
-	/** Structural guard: the InfiniteData parameter type makes this incompatible with useQuery,
+	/** Structural guard: the InfiniteData input type makes this incompatible with useQuery,
 	 *  whose select expects (data: TData) rather than (data: InfiniteData<TData, TPageParam>). */
-	select?: (data: InfiniteData<TData, TPageParam>) => any;
+	select?: (data: InfiniteData<TData, TPageParam>) => TResult;
 	/** Required so this type satisfies useInfiniteQuery, which requires getNextPageParam. */
 	getNextPageParam: GetNextPageParamFunction<TPageParam, TData>;
 	getPreviousPageParam?: GetPreviousPageParamFunction<TPageParam, TData>;
@@ -154,7 +160,7 @@ export interface QueryFactory<
 	infinite(
 		params?: TParams,
 		crawlOptions?: TCrawlOptions,
-	): ResolvedInfiniteOptions<TData, TError, TPageParam>;
+	): ResolvedInfiniteOptions<TData, TError, TPageParam, InfiniteData<TSelected, TPageParam>>;
 }
 
 // ─── Internal ────────────────────────────────────────────────────────────────
@@ -212,9 +218,11 @@ function wrapGetNextPageParam<TData, TPageParam, TSelected>(
 		crawlOptions: Record<string, unknown>,
 	) => boolean,
 	crawlOptions: Record<string, unknown>,
+	select?: (data: TData) => TSelected,
 ): GetNextPageParamFunction<TPageParam, TData> {
 	return (lastPage, allPages, lastPageParam, allPageParams) => {
-		if (!shouldFetchNextPage(lastPage as unknown as TSelected, crawlOptions))
+		const combined = select ? select(lastPage) : (lastPage as unknown as TSelected);
+		if (!shouldFetchNextPage(combined, crawlOptions))
 			return undefined;
 		return getNextPageParam(lastPage, allPages, lastPageParam, allPageParams);
 	};
@@ -430,7 +438,7 @@ function buildFactory(
 				select: envelopeSelect,
 				...(getPreviousPageParam !== undefined && { getPreviousPageParam }),
 				[FACTORY_CONFIG]: cfg,
-			} as ResolvedInfiniteOptions<any, any, any>;
+			} as ResolvedInfiniteOptions<any, any, any, any>;
 		}
 
 		const boundQueryFn = rawQueryFn
@@ -445,6 +453,7 @@ function buildFactory(
 						getNextPageParam,
 						shouldFetchNextPage,
 						crawlOptions,
+						select,
 					)
 				: (getNextPageParam ?? noNextPage);
 
@@ -457,7 +466,7 @@ function buildFactory(
 			...(getPreviousPageParam !== undefined && { getPreviousPageParam }),
 			...(initialPageParam !== undefined && { initialPageParam }),
 			[FACTORY_CONFIG]: cfg,
-		} as ResolvedInfiniteOptions<any, any, any>;
+		} as ResolvedInfiniteOptions<any, any, any, any>;
 	};
 
 	return factory;
