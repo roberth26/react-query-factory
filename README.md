@@ -85,13 +85,14 @@ function InstanceList() {
 }
 ```
 
-**`shouldFetchNextPage`** lets a call site stop the crawl early based on what has been accumulated so far. The arguments are the current reduced value and a `crawlOptions` object passed at call time:
+**`shouldFetchNextPage`** lets a call site stop the crawl early based on what has been accumulated so far. The arguments are the current reduced value and a `crawlOptions` object passed at call time. When `reduce` is present, `combined` is typed as `TSelected` (never undefined) because `reduce` always runs before this callback:
 
 ```typescript
 const describeInstances = queryFactory({
   // ...
+  reduce: (acc, page): Instance[] => [...(acc ?? []), ...page.Reservations.flatMap(r => r.Instances)],
   shouldFetchNextPage: (instances, opts: { minResults?: number }) =>
-    opts.minResults != null && (instances?.length ?? 0) < opts.minResults,
+    opts.minResults != null && instances.length < opts.minResults,  // instances: Instance[], not Instance[] | undefined
 });
 
 // stop after accumulating at least 50 instances
@@ -201,8 +202,8 @@ All fields except `reduce` and `shouldFetchNextPage` are the standard TanStack Q
 | `initialPageParam` | `TPageParam` | Exact TanStack API. Required alongside `getNextPageParam` to enable crawling. |
 | `getPreviousPageParam` | `GetPreviousPageParamFunction<TPageParam, TData>` | Exact TanStack API. Passed through on `.infinite()`. |
 | `reduce` | `(acc: TSelected \| undefined, page: TData) => TSelected` | Library addition. Folds crawled pages into a single value; required for crawling and `.infinite()` crawling. |
-| `shouldFetchNextPage` | `(combined: TSelected \| undefined, crawlOptions: TCrawlOptions) => boolean` | Library addition. Return `false` to stop the crawl early based on accumulated results. |
-| + all `StandardQueryOptions` fields | | `staleTime`, `gcTime`, `retry`, `enabled`, `refetchOnWindowFocus`, etc. |
+| `shouldFetchNextPage` | `(combined: TSelected, crawlOptions: TCrawlOptions) => boolean` when `reduce` is present; `(combined: TSelected \| undefined, ...) => boolean` otherwise | Library addition. Return `false` to stop the crawl early based on accumulated results. |
+| + all `StandardQueryOptions` fields | | All options accepted by TanStack's `useQuery` / `useInfiniteQuery` except `queryKey`, `queryFn`, and `select` (which the factory owns). Includes `staleTime`, `gcTime`, `retry`, `retryOnMount`, `enabled`, `refetchOnWindowFocus`, `refetchOnReconnect`, `refetchOnMount`, `refetchInterval`, `refetchIntervalInBackground`, `networkMode`, `notifyOnChangeProps`, `throwOnError`, `structuralSharing`, `initialData`, `initialDataUpdatedAt`, `placeholderData`, `queryKeyHashFn`, `persister`, `meta`, `maxPages`, `experimental_prefetchInRender`. Function-form callbacks (e.g. `enabled: (query) => boolean`) are supported wherever TanStack accepts them. |
 
 ### `QueryFactory<TParams, TData, TError, TSelected, TPageParam, TCrawlOptions>`
 

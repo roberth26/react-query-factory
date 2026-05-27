@@ -952,4 +952,63 @@ describe('queryFactory – types', () => {
       },
     });
   });
+
+  it('shouldFetchNextPage combined param is TSelected (not | undefined) when reduce is present', () => {
+    queryFactory({
+      queryKey: ['users'],
+      queryFn: (_params: void) => ({ users: [], nextCursor: null }) as PagedUsers,
+      getNextPageParam: (p: PagedUsers) => p.nextCursor,
+      initialPageParam: null as Cursor,
+      reduce: (_acc: SomeUser[] | undefined, page: PagedUsers): SomeUser[] => page.users,
+      shouldFetchNextPage: (combined) => {
+        expectTypeOf(combined).toEqualTypeOf<SomeUser[]>();
+        return combined.length < 10;
+      },
+    });
+  });
+
+  it('shouldFetchNextPage combined param is TSelected | undefined when reduce is absent', () => {
+    queryFactory({
+      queryKey: ['users'],
+      queryFn: (_params: void) => ({ users: [], nextCursor: null }) as PagedUsers,
+      getNextPageParam: (p: PagedUsers) => p.nextCursor,
+      initialPageParam: null as Cursor,
+      shouldFetchNextPage: (combined) => {
+        expectTypeOf(combined).toEqualTypeOf<PagedUsers | undefined>();
+        return true;
+      },
+    });
+  });
+
+  it('shouldFetchNextPage combined param on a child factory is typed (not any)', () => {
+    const parent = queryFactory({
+      queryKey: ['users'],
+      queryFn: (_params: void) => ({ users: [], nextCursor: null }) as PagedUsers,
+      getNextPageParam: (p: PagedUsers) => p.nextCursor,
+      initialPageParam: null as Cursor,
+      reduce: (_acc: SomeUser[] | undefined, page: PagedUsers): SomeUser[] => page.users,
+    });
+    queryFactory(parent, {
+      shouldFetchNextPage: (combined) => {
+        expectTypeOf(combined).not.toBeAny();
+        expectTypeOf(combined).toEqualTypeOf<SomeUser[] | undefined>();
+        return true;
+      },
+    });
+  });
+
+  it('StandardQueryOptions fields are accepted on factory config', () => {
+    queryFactory({
+      queryKey: ['users'],
+      queryFn: (_params: void) => [] as SomeUser[],
+      enabled: (query) => query.queryKey.length > 0,
+      staleTime: (query) => (query.state.data ? Infinity : 0),
+      retryOnMount: false,
+      initialData: [] as SomeUser[],
+      placeholderData: [] as SomeUser[],
+      queryKeyHashFn: (key) => JSON.stringify(key),
+      structuralSharing: (oldData, newData) => newData ?? oldData,
+      experimental_prefetchInRender: false,
+    });
+  });
 });
