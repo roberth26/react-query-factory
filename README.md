@@ -4,6 +4,7 @@
 ![minified](https://img.shields.io/badge/minified-%3C_12_kB-blue)
 ![gzipped](https://img.shields.io/badge/gzipped-%3C_3_kB-blue)
 [![license](https://img.shields.io/npm/l/@robohall/react-query-factory)](./LICENSE)
+[![sandbox](https://img.shields.io/badge/sandbox-live_demos-8A2BE2)](https://roberth26.github.io/react-query-factory/)
 
 A factory function for TanStack Query configs. Instead of calling `useQuery` with ad-hoc options, you define a factory once and call it anywhere — getting consistent cache keys, automatic pagination crawling, and `useInfiniteQuery` support for free. TanStack's API stays fully exposed.
 
