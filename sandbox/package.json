@@ -8,16 +8,24 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@cloudscape-design/code-view": "^3.0.136",
+    "@cloudscape-design/collection-hooks": "^1.0.96",
+    "@cloudscape-design/components": "^3.0.1301",
+    "@cloudscape-design/global-styles": "^1.0.59",
     "@tanstack/react-query": "^5.0.0",
     "@tanstack/react-query-devtools": "^5.0.0",
+    "highlight.js": "^11.11.1",
     "prism-react-renderer": "^2.4.1",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-compiler-runtime": "^1.0.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^7.15.1"
   },
   "devDependencies": {
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "@vitejs/plugin-react": "^4.0.0",
+    "babel-plugin-react-compiler": "^1.0.0",
     "typescript": "^5.0.0",
     "vite": "^5.0.0"
   }

@@ -1,7 +1,8 @@
 # @robohall/react-query-factory
 
 [![npm](https://img.shields.io/npm/v/@robohall/react-query-factory)](https://www.npmjs.com/package/@robohall/react-query-factory)
-[![bundle size](https://img.shields.io/bundlephobia/minzip/@robohall/react-query-factory)](https://bundlephobia.com/package/@robohall/react-query-factory)
+![minified](https://img.shields.io/badge/minified-%3C_12_kB-blue)
+![gzipped](https://img.shields.io/badge/gzipped-%3C_3_kB-blue)
 [![license](https://img.shields.io/npm/l/@robohall/react-query-factory)](./LICENSE)
 
 A factory function for TanStack Query configs. Instead of calling `useQuery` with ad-hoc options, you define a factory once and call it anywhere — getting consistent cache keys, automatic pagination crawling, and `useInfiniteQuery` support for free. TanStack's API stays fully exposed.
@@ -135,21 +136,40 @@ const findInstance = queryFactory(describeInstances, {
     !instances.some(i => i.InstanceId === opts.instanceId),
 });
 
-// query key: ['ec2:DescribeInstances', 'find', { MaxResults: 20 }, { instanceId: 'i-0abc123def456' }]
+// query key: ['ec2:DescribeInstances', { MaxResults: 20 }, 'find', { instanceId: 'i-0abc123def456' }]
 // crawls pages until the target instance appears, then stops
 const { data } = useQuery(
   findInstance({ MaxResults: 20 }, { instanceId: 'i-0abc123def456' })
 );
 ```
 
-Because `findInstance`'s key is nested under `['ec2:DescribeInstances']`, a single invalidation call busts the parent and all children:
+**Invalidation — broad and scoped:**
+
+Child keys follow the ordering `[...parentNS, params, ...childSegments]`, which means the parent key for a given set of params is always a strict prefix of every child key for those same params:
+
+```
+describeInstances({ MaxResults: 20 })
+  → ['ec2:DescribeInstances', { MaxResults: 20 }]
+
+runningInstances({ MaxResults: 20 })          // select child, no own segments
+  → ['ec2:DescribeInstances', { MaxResults: 20 }]  (same entry — select is not in the key)
+
+findInstance({ MaxResults: 20 }, { instanceId: 'i-abc' })
+  → ['ec2:DescribeInstances', { MaxResults: 20 }, 'find', { instanceId: 'i-abc' }]
+//                              └── params ──────┘ └── own segs ──────────────────┘
+```
+
+This unlocks two invalidation granularities with no extra bookkeeping:
 
 ```typescript
-// after a runInstances/terminateInstances mutation — invalidates everything in the namespace.
-// Calling the factory with no args produces just the namespace key; TanStack prefix-matches it
-// against all entries, so describeInstances, runningInstances, and findInstance are all busted.
+// Broad: zero-arg returns the namespace — busts every variant, every param set
 await queryClient.invalidateQueries(describeInstances());
+
+// Scoped: parent call with params — busts the parent and every child for those params only
+await queryClient.invalidateQueries(describeInstances({ MaxResults: 20 }));
 ```
+
+The scoped form is particularly useful after a targeted mutation: invalidate the one resource that changed without touching unrelated cache entries.
 
 ---
 
@@ -169,6 +189,8 @@ const { data, fetchNextPage, hasNextPage } = useInfiniteQuery(
 The `.infinite()` key includes an `'infinite'` segment to keep it separate from the regular `useQuery` cache entry:
 - `describeInstances({ MaxResults: 20 })` → `['ec2:DescribeInstances', { MaxResults: 20 }]`
 - `describeInstances.infinite({ MaxResults: 20 })` → `['ec2:DescribeInstances', 'infinite', { MaxResults: 20 }]`
+
+Child factories place `params` before their own key segments so that the parent key is always a prefix of the child key for the same params — enabling per-call-site scoped invalidation.
 
 ---
 

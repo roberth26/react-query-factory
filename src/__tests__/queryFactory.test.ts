@@ -434,16 +434,29 @@ describe('queryFactory – composition', () => {
     queryFn: async (p: { filter: string }) => [] as User[],
   });
 
-  it('appends child namespace segments then params', () => {
+  it('inserts params before child segments: [...parentNS, params, ...childSegs]', () => {
     const child = queryFactory(base, { queryKey: ['active'] });
     expect(child({ filter: 'admin' }).queryKey)
-      .toEqual(['users', 'active', { filter: 'admin' }]);
+      .toEqual(['users', { filter: 'admin' }, 'active']);
   });
 
-  it('appends "infinite" correctly on the composed key', () => {
+  it('inserts params before child segments on .infinite: [...parentNS, params, ...childSegs, "infinite"]', () => {
     const child = queryFactory(base, { queryKey: ['active'] });
     expect(child.infinite({ filter: 'admin' }).queryKey)
-      .toEqual(['users', 'active', 'infinite', { filter: 'admin' }]);
+      .toEqual(['users', { filter: 'admin' }, 'active', 'infinite']);
+  });
+
+  it('zero-arg returns just the parent namespace for broad invalidation', () => {
+    const child = queryFactory(base, { queryKey: ['active'] });
+    expect(child().queryKey).toEqual(['users']);
+    expect(child.infinite().queryKey).toEqual(['users']);
+  });
+
+  it('parent(params) key is a prefix of child(params) key — enables per-instance invalidation', () => {
+    const child = queryFactory(base, { queryKey: ['active'] });
+    const parentKey = base({ filter: 'admin' }).queryKey as unknown[];
+    const childKey = child({ filter: 'admin' }).queryKey as unknown[];
+    expect(childKey.slice(0, parentKey.length)).toEqual(parentKey);
   });
 
   it('uses only the parent namespace when no child queryKey is given', () => {
@@ -625,8 +638,8 @@ describe('queryFactory – composition', () => {
     const b = queryFactory(a, { queryKey: ['b'] });
     const c = queryFactory(b, { queryKey: ['c'] });
 
-    expect(c({ x: '1' }).queryKey).toEqual(['a', 'b', 'c', { x: '1' }]);
-    expect(c.infinite({ x: '1' }).queryKey).toEqual(['a', 'b', 'c', 'infinite', { x: '1' }]);
+    expect(c({ x: '1' }).queryKey).toEqual(['a', 'b', { x: '1' }, 'c']);
+    expect(c.infinite({ x: '1' }).queryKey).toEqual(['a', 'b', { x: '1' }, 'c', 'infinite']);
   });
 });
 

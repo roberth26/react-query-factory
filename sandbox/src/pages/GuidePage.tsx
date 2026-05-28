@@ -1,0 +1,220 @@
+import { useNavigate } from 'react-router-dom';
+import {
+	Badge,
+	Box,
+	Button,
+	ColumnLayout,
+	Container,
+	Header,
+	SpaceBetween,
+	StatusIndicator,
+} from '@cloudscape-design/components';
+import pageSource from './GuidePage.tsx?raw';
+
+export const handle = { label: 'Playbook', source: pageSource };
+
+export async function loader() {
+	return null;
+}
+
+interface PatternInfo {
+	name: string;
+	href: string;
+	tag: string;
+	tagColor: 'blue' | 'grey' | 'green' | 'red';
+	useWhen: string;
+}
+
+const BASIC: PatternInfo = {
+	name: 'Basic',
+	href: '/basic',
+	tag: 'Single call',
+	tagColor: 'grey',
+	useWhen: 'API returns a single, non-paginated response',
+};
+
+const CRAWL_THEN_RENDER: PatternInfo = {
+	name: 'Crawl-then-render',
+	href: '/dropdown',
+	tag: 'Blocking crawl',
+	tagColor: 'red',
+	useWhen: 'UI is useless with partial data — dropdown options, counts, totals',
+};
+
+const CONDITIONAL_CRAWL: PatternInfo = {
+	name: 'Conditional crawl',
+	href: '/bounded-crawl',
+	tag: 'Early stop',
+	tagColor: 'blue',
+	useWhen: 'Need a record subset — crawl stops when accumulated results meet a condition',
+};
+
+const RENDER_WHILE_CRAWLING: PatternInfo = {
+	name: 'Render-while-crawling',
+	href: '/crawl',
+	tag: 'Streaming',
+	tagColor: 'green',
+	useWhen: 'UI can render partial results — rows stream in as each page arrives',
+};
+
+const INFINITE: PatternInfo = {
+	name: 'Infinite pagination',
+	href: '/infinite',
+	tag: 'On demand',
+	tagColor: 'blue',
+	useWhen: 'User navigates pages; each page crawls API calls until the UI page size is met',
+};
+
+const COMPOSITION: PatternInfo = {
+	name: 'Composition',
+	href: '/composition',
+	tag: 'Cross-cutting',
+	tagColor: 'grey',
+	useWhen: 'Multiple views of the same data — child factories share one cache entry',
+};
+
+const INVALIDATION: PatternInfo = {
+	name: 'Invalidation',
+	href: '/invalidate',
+	tag: 'Cross-cutting',
+	tagColor: 'grey',
+	useWhen: 'Mutation changes server state — one namespace key marks all variants stale',
+};
+
+function PatternCard({ pattern }: { pattern: PatternInfo }) {
+	const navigate = useNavigate();
+	return (
+		<SpaceBetween size="xs">
+			<Badge color={pattern.tagColor}>{pattern.tag}</Badge>
+			<Box fontWeight="bold" fontSize="heading-m">{pattern.name}</Box>
+			<Box color="text-body-secondary">{pattern.useWhen}</Box>
+			<Button variant="inline-link" onClick={() => navigate(pattern.href)}>
+				See example
+			</Button>
+		</SpaceBetween>
+	);
+}
+
+function Continue({ label, next }: { label: string; next: string }) {
+	return (
+		<Box color="text-status-inactive">
+			<SpaceBetween size="xs">
+				<StatusIndicator type="in-progress">{label}</StatusIndicator>
+				<Box>{next}</Box>
+			</SpaceBetween>
+		</Box>
+	);
+}
+
+function DecisionStep({
+	question,
+	exitLabel,
+	exitPattern,
+	continueLabel,
+	continueNext,
+}: {
+	question: string;
+	exitLabel: string;
+	exitPattern: PatternInfo;
+	continueLabel: string;
+	continueNext: string;
+}) {
+	return (
+		<Container header={<Header variant="h3">{question}</Header>}>
+			<ColumnLayout columns={2} variant="text-grid">
+				<SpaceBetween size="s">
+					<Box fontWeight="bold" color="text-status-error">{exitLabel}</Box>
+					<PatternCard pattern={exitPattern} />
+				</SpaceBetween>
+				<SpaceBetween size="s">
+					<Box fontWeight="bold" color="text-status-success">{continueLabel}</Box>
+					<Continue label={continueLabel} next={continueNext} />
+				</SpaceBetween>
+			</ColumnLayout>
+		</Container>
+	);
+}
+
+function FinalStep({
+	question,
+	leftLabel,
+	leftPattern,
+	rightLabel,
+	rightPattern,
+}: {
+	question: string;
+	leftLabel: string;
+	leftPattern: PatternInfo;
+	rightLabel: string;
+	rightPattern: PatternInfo;
+}) {
+	return (
+		<Container header={<Header variant="h3">{question}</Header>}>
+			<ColumnLayout columns={2} variant="text-grid">
+				<SpaceBetween size="s">
+					<Box fontWeight="bold" color="text-status-success">{leftLabel}</Box>
+					<PatternCard pattern={leftPattern} />
+				</SpaceBetween>
+				<SpaceBetween size="s">
+					<Box fontWeight="bold" color="text-status-error">{rightLabel}</Box>
+					<PatternCard pattern={rightPattern} />
+				</SpaceBetween>
+			</ColumnLayout>
+		</Container>
+	);
+}
+
+function GuidePage() {
+	return (
+		<SpaceBetween size="l">
+			<SpaceBetween size="m">
+				<DecisionStep
+					question="Does the API paginate?"
+					exitLabel="No"
+					exitPattern={BASIC}
+					continueLabel="Yes"
+					continueNext="Does the UI need complete data before it's useful?"
+				/>
+				<DecisionStep
+					question="Does the UI need complete data before it's useful?"
+					exitLabel="Yes"
+					exitPattern={CRAWL_THEN_RENDER}
+					continueLabel="No"
+					continueNext="Does the user control page navigation?"
+				/>
+				<DecisionStep
+					question="Does the user control page navigation?"
+					exitLabel="Yes"
+					exitPattern={INFINITE}
+					continueLabel="No"
+					continueNext="Can the UI render partial results while loading?"
+				/>
+				<FinalStep
+					question="Can the UI render partial results while loading?"
+					leftLabel="Yes"
+					leftPattern={RENDER_WHILE_CRAWLING}
+					rightLabel="No"
+					rightPattern={CONDITIONAL_CRAWL}
+				/>
+			</SpaceBetween>
+
+			<Container
+				header={
+					<Header
+						variant="h2"
+						description="These apply alongside any pattern above."
+					>
+						Cross-cutting concerns
+					</Header>
+				}
+			>
+				<ColumnLayout columns={2} variant="text-grid">
+					<PatternCard pattern={COMPOSITION} />
+					<PatternCard pattern={INVALIDATION} />
+				</ColumnLayout>
+			</Container>
+		</SpaceBetween>
+	);
+}
+
+export { GuidePage as Component };

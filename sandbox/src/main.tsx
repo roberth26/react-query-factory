@@ -1,18 +1,23 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
-import App from './App.tsx';
+import { RouterProvider } from 'react-router-dom';
+import '@cloudscape-design/global-styles/index.css';
+import { applyMode, Mode } from '@cloudscape-design/global-styles';
+import { queryClient } from './queryClient.js';
+import { router } from './router.js';
+import { NotificationProvider } from './notifications.js';
 
-const queryClient = new QueryClient({
-  defaultOptions: { queries: { retry: false } },
-});
+applyMode(Mode.Dark);
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <App />
-      <ReactQueryDevtools initialIsOpen={false} />
+      <NotificationProvider>
+        <RouterProvider router={router} />
+      </NotificationProvider>
+      <ReactQueryDevtools initialIsOpen={false} theme="dark" />
     </QueryClientProvider>
   </StrictMode>,
 );

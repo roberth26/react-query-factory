@@ -169,6 +169,7 @@ const FACTORY_CONFIG = Symbol('factoryConfig');
 
 interface NormalizedConfig {
 	queryKey: QueryKey;
+	parentKey?: QueryKey;
 	queryFn?: (params: any, ctx: QueryFunctionContext<any, any>) => any;
 	select?: (data: any) => any;
 	getNextPageParam?: GetNextPageParamFunction<any, any>;
@@ -199,8 +200,7 @@ function resolveKey(
 	params: unknown,
 	crawlOptions?: Record<string, unknown>,
 ): QueryKey {
-	const base = Array.isArray(namespace) ? namespace : [namespace];
-	const withParams = params === undefined ? base : [...base, params];
+	const withParams = params === undefined ? namespace : [...namespace, params];
 	if (!crawlOptions) return withParams;
 	let defined: Record<string, unknown> | undefined;
 	for (const key in crawlOptions) {
@@ -209,6 +209,29 @@ function resolveKey(
 		}
 	}
 	return defined ? [...withParams, defined] : withParams;
+}
+
+/** Builds the key for a child factory call under Option-B ordering:
+ *  [...parentKey, params?, ...ownSegments, 'infinite'?, crawlOptions?]
+ *  Zero-arg (no params, no crawlOptions) returns just the parent namespace. */
+function buildChildKey(
+	parentKey: QueryKey,
+	ownSegments: QueryKey,
+	params: unknown,
+	crawlOptions: Record<string, unknown>,
+	infinite?: boolean,
+): QueryKey {
+	let defined: Record<string, unknown> | undefined;
+	for (const key in crawlOptions) {
+		if (crawlOptions[key] !== undefined) {
+			(defined ??= {})[key] = crawlOptions[key];
+		}
+	}
+	if (params === undefined && !defined) return [...parentKey];
+	const withParams = params !== undefined ? [...parentKey, params] : [...parentKey];
+	const withOwn = [...withParams, ...ownSegments];
+	const withInfinite = infinite ? [...withOwn, 'infinite'] : withOwn;
+	return defined ? [...withInfinite, defined] : withInfinite;
 }
 
 function wrapGetNextPageParam<TData, TPageParam, TSelected>(
@@ -343,6 +366,7 @@ function buildFactory(
 ): QueryFactory<any, any, any, any, any, any, any> {
 	const {
 		queryKey: namespace,
+		parentKey,
 		queryFn: rawQueryFn,
 		select,
 		getNextPageParam,
@@ -352,6 +376,12 @@ function buildFactory(
 		reduce,
 		standardOptions,
 	} = cfg;
+
+	const ownSegments = parentKey !== undefined
+		? (namespace as unknown[]).slice(parentKey.length) as QueryKey
+		: namespace;
+
+	const infiniteNamespace: QueryKey = [...namespace, 'infinite'];
 
 	const hasCrawling =
 		rawQueryFn !== undefined &&
@@ -379,8 +409,6 @@ function buildFactory(
 			)
 		: undefined;
 
-	const infiniteNamespace = [...resolveKey(namespace, undefined), 'infinite'];
-
 	const envelopeSelect = infiniteCrawlingFn
 		? (data: { pages: CrawlEnvelope<any, any>[]; pageParams: any[] }) => ({
 				...data,
@@ -400,7 +428,9 @@ function buildFactory(
 		params: any,
 		crawlOptions: Record<string, unknown> = {},
 	) {
-		const queryKey = resolveKey(namespace, params, crawlOptions);
+		const queryKey = parentKey !== undefined
+			? buildChildKey(parentKey, ownSegments, params, crawlOptions)
+			: resolveKey(namespace, params, crawlOptions);
 
 		const resolvedQueryFn = crawlingFn
 			? (ctx: QueryFunctionContext) => crawlingFn(params, crawlOptions, ctx)
@@ -421,9 +451,9 @@ function buildFactory(
 		params: any,
 		crawlOptions: Record<string, unknown> = {},
 	) {
-		// 'infinite' sits between the namespace and the params so the key reads as
-		// [...namespace, 'infinite', params, crawlOptions?] — the variant marker precedes the args.
-		const queryKey = resolveKey(infiniteNamespace, params, crawlOptions);
+		const queryKey = parentKey !== undefined
+			? buildChildKey(parentKey, ownSegments, params, crawlOptions, true)
+			: resolveKey(infiniteNamespace, params, crawlOptions);
 
 		if (infiniteCrawlingFn) {
 			// Each virtual page is a crawl. The envelope carries nextBatchParam so
@@ -716,6 +746,7 @@ export function queryFactory(
 
 		return buildFactory({
 			queryKey: composedNamespace,
+			parentKey: parentCfg.queryKey,
 			queryFn: hasNewQueryFn ? childConfig.queryFn : parentCfg.queryFn,
 			select: resolvedSelect,
 			...crawling,
