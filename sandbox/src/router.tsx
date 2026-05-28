@@ -1,4 +1,4 @@
-import { createBrowserRouter, redirect } from 'react-router-dom';
+import { createHashRouter as createBrowserRouter, redirect } from 'react-router-dom';
 import App from './App.js';
 
 export const router = createBrowserRouter([
