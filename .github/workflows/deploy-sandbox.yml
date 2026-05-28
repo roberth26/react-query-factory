@@ -28,7 +28,10 @@ jobs:
           cache: npm
           cache-dependency-path: sandbox/package-lock.json
 
-      - name: Install dependencies
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install sandbox dependencies
         run: npm ci
         working-directory: sandbox
 
