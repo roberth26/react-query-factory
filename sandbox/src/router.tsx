@@ -7,7 +7,7 @@ export const router = createBrowserRouter([
 		element: <App />,
 		children: [
 			{ index: true, loader: () => redirect('/playbook') },
-			{ path: 'playbook', lazy: () => import('./pages/GuidePage.js') },
+			{ path: 'playbook', lazy: () => import('./pages/PlaybookPage.js') },
 			{ path: 'basic', lazy: () => import('./pages/BasicPage.js') },
 			{ path: 'crawl', lazy: () => import('./pages/ExhaustiveCrawlPage.js') },
 			{ path: 'dropdown', lazy: () => import('./pages/DropdownPage.js') },

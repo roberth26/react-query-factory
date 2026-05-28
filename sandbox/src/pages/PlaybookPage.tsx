@@ -7,9 +7,8 @@ import {
 	Container,
 	Header,
 	SpaceBetween,
-	StatusIndicator,
 } from '@cloudscape-design/components';
-import pageSource from './GuidePage.tsx?raw';
+import pageSource from './PlaybookPage.tsx?raw';
 
 export const handle = { label: 'Playbook', source: pageSource };
 
@@ -95,17 +94,6 @@ function PatternCard({ pattern }: { pattern: PatternInfo }) {
 	);
 }
 
-function Continue({ label, next }: { label: string; next: string }) {
-	return (
-		<Box color="text-status-inactive">
-			<SpaceBetween size="xs">
-				<StatusIndicator type="in-progress">{label}</StatusIndicator>
-				<Box>{next}</Box>
-			</SpaceBetween>
-		</Box>
-	);
-}
-
 function DecisionStep({
 	question,
 	exitLabel,
@@ -123,12 +111,12 @@ function DecisionStep({
 		<Container header={<Header variant="h3">{question}</Header>}>
 			<ColumnLayout columns={2} variant="text-grid">
 				<SpaceBetween size="s">
-					<Box fontWeight="bold" color="text-status-error">{exitLabel}</Box>
+					<Box variant="awsui-key-label">If {exitLabel}</Box>
 					<PatternCard pattern={exitPattern} />
 				</SpaceBetween>
 				<SpaceBetween size="s">
-					<Box fontWeight="bold" color="text-status-success">{continueLabel}</Box>
-					<Continue label={continueLabel} next={continueNext} />
+					<Box variant="awsui-key-label">If {continueLabel}</Box>
+					<Box color="text-body-secondary">↓ {continueNext}</Box>
 				</SpaceBetween>
 			</ColumnLayout>
 		</Container>
@@ -152,11 +140,11 @@ function FinalStep({
 		<Container header={<Header variant="h3">{question}</Header>}>
 			<ColumnLayout columns={2} variant="text-grid">
 				<SpaceBetween size="s">
-					<Box fontWeight="bold" color="text-status-success">{leftLabel}</Box>
+					<Box variant="awsui-key-label">If {leftLabel}</Box>
 					<PatternCard pattern={leftPattern} />
 				</SpaceBetween>
 				<SpaceBetween size="s">
-					<Box fontWeight="bold" color="text-status-error">{rightLabel}</Box>
+					<Box variant="awsui-key-label">If {rightLabel}</Box>
 					<PatternCard pattern={rightPattern} />
 				</SpaceBetween>
 			</ColumnLayout>
