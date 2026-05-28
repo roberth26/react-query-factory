@@ -6,7 +6,7 @@
 [![license](https://img.shields.io/npm/l/@robohall/react-query-factory)](./LICENSE)
 
 <p align="center">
-  <a href="https://roberth26.github.io/react-query-factory/"><strong>→ Live demos</strong></a>
+  <a href="https://roberth26.github.io/react-query-factory/"><strong>Visit the Sandbox</strong></a>
 </p>
 
 A factory function for TanStack Query configs. Instead of calling `useQuery` with ad-hoc options, you define a factory once and call it anywhere — getting consistent cache keys, automatic pagination crawling, and `useInfiniteQuery` support for free. TanStack's API stays fully exposed.
