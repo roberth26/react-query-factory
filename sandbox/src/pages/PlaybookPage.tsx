@@ -32,6 +32,14 @@ const BASIC: PatternInfo = {
 	useWhen: 'API returns a single, non-paginated response',
 };
 
+const ASYNC_ITERATOR: PatternInfo = {
+	name: 'Async iterator',
+	href: '/paginator',
+	tag: 'Async iterable',
+	tagColor: 'blue',
+	useWhen: 'queryFn returns an AsyncIterable — iterator manages its own cursor, no getNextPageParam needed',
+};
+
 const CRAWL_THEN_RENDER: PatternInfo = {
 	name: 'Crawl-then-render',
 	href: '/crawl-then-render',
@@ -185,6 +193,19 @@ function GuidePage() {
 					rightPattern={CONDITIONAL_CRAWL}
 				/>
 			</SpaceBetween>
+
+			<Container
+				header={
+					<Header
+						variant="h2"
+						description="Drop-in alternative when the SDK provides a paginator function."
+					>
+						Alternative API
+					</Header>
+				}
+			>
+				<PatternCard pattern={ASYNC_ITERATOR} />
+			</Container>
 
 			<Container
 				header={

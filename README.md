@@ -111,6 +111,49 @@ const { data: partial } = useQuery(
 
 ---
 
+## Async iterator queryFns
+
+When `queryFn` returns an `AsyncIterable`, the library detects it automatically and drives the crawl with `for await...of` instead of the cursor loop. This means `getNextPageParam` and `initialPageParam` are not required — the iterator manages its own cursor. AWS SDK v3 paginator functions (`paginateDescribeInstances`, etc.) are a common source of async iterables:
+
+```typescript
+import { paginateDescribeInstances } from '@aws-sdk/client-ec2';
+
+const describeInstances = queryFactory({
+  queryKey: ['ec2:DescribeInstances'],
+  queryFn: (params: DescribeInstancesCommandInput) =>
+    paginateDescribeInstances({ client: ec2 }, params),
+  shouldFetchNextPage: (instances, opts: { minResults?: number }) =>
+    opts.minResults == null || instances.length < opts.minResults,
+  reduce: (acc, page): Instance[] => [
+    ...(acc ?? []),
+    ...(page.Reservations?.flatMap(r => r.Instances ?? []) ?? []),
+  ],
+});
+```
+
+`shouldFetchNextPage` still controls early stopping — the library calls `next()` on the iterator only when it returns `true`. Any source of `AsyncIterable<TPage>` works, not just AWS SDK paginators.
+
+For `.infinite()` mode, `getNextPageParam` is required to capture the next virtual page's starting cursor from the last yielded item. AWS SDK v3 paginators accept a `startingToken` to resume from a specific position — wire `ctx.pageParam` to it:
+
+```typescript
+const describeInstances = queryFactory({
+  queryKey: ['ec2:DescribeInstances'],
+  queryFn: (params: DescribeInstancesCommandInput, ctx) =>
+    paginateDescribeInstances({ client: ec2 }, { ...params, StartingToken: ctx.pageParam }),
+  getNextPageParam: page => page.NextToken,
+  initialPageParam: undefined as string | undefined,
+  shouldFetchNextPage: (instances, opts: { minResults?: number }) =>
+    opts.minResults == null || instances.length < opts.minResults,
+  reduce: (acc, page): Instance[] => [...(acc ?? []), ...(page.Instances ?? [])],
+});
+
+const { data, fetchNextPage } = useInfiniteQuery(
+  describeInstances.infinite({ MaxResults: 20 }, { minResults: 50 }),
+);
+```
+
+---
+
 ## Factory composition
 
 A factory can inherit from another factory. The child's query key is appended to the parent's, standard options are shallow-merged, and the `queryFn` and crawling config can be inherited or replaced.

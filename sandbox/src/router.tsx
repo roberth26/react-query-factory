@@ -9,6 +9,7 @@ export const router = createBrowserRouter([
 			{ index: true, loader: () => redirect('/playbook') },
 			{ path: 'playbook', lazy: () => import('./pages/PlaybookPage.js') },
 			{ path: 'basic', lazy: () => import('./pages/BasicPage.js') },
+			{ path: 'paginator', lazy: () => import('./pages/PaginatorPage.js') },
 			{ path: 'crawl-then-render', lazy: () => import('./pages/CrawlThenRenderPage.js') },
 			{ path: 'render-while-crawling', lazy: () => import('./pages/RenderWhileCrawlingPage.js') },
 			{ path: 'on-demand', lazy: () => import('./pages/OnDemandPage.js') },

@@ -18,6 +18,7 @@ const NAV_ITEMS = [
 	{ type: 'link', text: 'Playbook', href: '/playbook' },
 	{ type: 'divider' },
 	{ type: 'link', text: 'Basic', href: '/basic' },
+	{ type: 'link', text: 'Async iterator', href: '/paginator' },
 	{ type: 'link', text: 'Crawl-then-render', href: '/crawl-then-render' },
 	{ type: 'link', text: 'Render-while-crawling', href: '/render-while-crawling' },
 	{ type: 'link', text: 'On demand', href: '/on-demand' },

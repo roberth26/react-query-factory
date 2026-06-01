@@ -170,7 +170,7 @@ const FACTORY_CONFIG = Symbol('factoryConfig');
 interface NormalizedConfig {
 	queryKey: QueryKey;
 	parentKey?: QueryKey;
-	queryFn?: (params: any, ctx: QueryFunctionContext<any, any>) => any;
+	queryFn?: (params: any, ctx: QueryFunctionContext<any, any>) => any | AsyncIterable<any>;
 	select?: (data: any) => any;
 	getNextPageParam?: GetNextPageParamFunction<any, any>;
 	getPreviousPageParam?: GetPreviousPageParamFunction<any, any>;
@@ -193,6 +193,10 @@ const getEnvelopeNextPageParam = (envelope: CrawlEnvelope<any, any>) =>
 	envelope.nextPageParam;
 
 const noNextPage = () => undefined;
+
+function isAsyncIterable<T>(value: unknown): value is AsyncIterable<T> {
+	return value != null && typeof (value as any)[Symbol.asyncIterator] === 'function';
+}
 
 /** Appends params and any crawl options to the key. */
 function resolveKey(
@@ -251,13 +255,15 @@ function wrapGetNextPageParam<TData, TPageParam, TSelected>(
 	};
 }
 
-/** Crawling queryFn for regular useQuery — collects all pages into a combined result. */
+/** Crawling queryFn for regular useQuery — collects all pages into a combined result.
+ *  Supports both cursor-based pagination and async iterable queryFns (e.g. AWS SDK v3 paginators).
+ *  When queryFn returns an AsyncIterable, getNextPageParam is not required. */
 function buildCrawlingQueryFn<TData, TPageParam, TSelected>(
 	queryFn: (
 		params: any,
 		ctx: QueryFunctionContext<any, any>,
-	) => TData | Promise<TData>,
-	getNextPageParam: GetNextPageParamFunction<TPageParam, TData>,
+	) => TData | Promise<TData> | AsyncIterable<TData>,
+	getNextPageParam: GetNextPageParamFunction<TPageParam, TData> | undefined,
 	initialPageParam: TPageParam,
 	shouldFetchNextPage: (
 		combined: TSelected | undefined,
@@ -272,29 +278,58 @@ function buildCrawlingQueryFn<TData, TPageParam, TSelected>(
 	ctx: QueryFunctionContext,
 ) => Promise<TSelected | TData[]> {
 	return async (params, crawlOptions, context) => {
+		// Pre-flight mirrors the original signal check that preceded every queryFn call.
+		if (context.signal?.aborted) {
+			if (reduce) throw new DOMException('Aborted', 'AbortError');
+			return [];
+		}
+
+		const ctx = { ...context, pageParam: initialPageParam as unknown };
+		const initialResult = queryFn(params, ctx as any);
+
+		// ── Async iterable path ──────────────────────────────────────────────
+		if (isAsyncIterable<TData>(initialResult)) {
+			const pages: TData[] = [];
+			let acc: TSelected | undefined = undefined;
+			for await (const page of initialResult) {
+				if (context.signal?.aborted) break;
+				pages.push(page);
+				if (reduce) acc = reduce(acc, page);
+				if (!shouldFetchNextPage(acc, crawlOptions)) break;
+			}
+			if (reduce) {
+				if (acc === undefined) throw new DOMException('Aborted', 'AbortError');
+				return acc;
+			}
+			return pages;
+		}
+
+		// ── Cursor-based path ────────────────────────────────────────────────
+		// Use a rolling "next result" pointer so the pre-fetched first call is
+		// consumed naturally on the first iteration without an isFirstPage flag.
 		const pages: TData[] = [];
 		const pageParams: TPageParam[] = [];
 		let currentParam: TPageParam = initialPageParam;
 		let acc: TSelected | undefined = undefined;
-		const ctx = { ...context, pageParam: currentParam as unknown };
+		let nextResult: Promise<TData> = initialResult as Promise<TData>;
 
 		while (true) {
-			if (context.signal?.aborted) break;
-
-			ctx.pageParam = currentParam;
-			const page = await queryFn(params, ctx as any);
+			const page = await nextResult;
 			pages.push(page);
 			pageParams.push(currentParam);
 			if (reduce) acc = reduce(acc, page);
 
 			if (context.signal?.aborted) break;
-
 			if (!shouldFetchNextPage(acc, crawlOptions)) break;
+			if (!getNextPageParam) break;
 
 			const nextParam = getNextPageParam(page, pages, currentParam, pageParams);
 			if (nextParam == null) break;
-
 			currentParam = nextParam as TPageParam;
+
+			if (context.signal?.aborted) break;
+			ctx.pageParam = currentParam;
+			nextResult = queryFn(params, ctx as any) as Promise<TData>;
 		}
 
 		if (reduce) {
@@ -308,14 +343,17 @@ function buildCrawlingQueryFn<TData, TPageParam, TSelected>(
 /** Crawling queryFn for useInfiniteQuery — each virtual page is one crawl.
  *
  *  Starts from ctx.pageParam (provided by TanStack), crawls until
- *  shouldFetchNextPage returns false or getNextPageParam returns null, then
- *  returns an envelope containing the combined result and the next batch's
- *  starting param. TanStack's getNextPageParam is wired to read that field. */
+ *  shouldFetchNextPage returns false or pages are exhausted, then returns an
+ *  envelope with the combined result and the next batch's starting param.
+ *
+ *  For async iterable queryFns, ctx.pageParam can be passed as startingToken
+ *  to the paginator. getNextPageParam is called on the last yielded page to
+ *  capture the next virtual page's starting cursor. */
 function buildInfiniteCrawlingQueryFn<TData, TPageParam, TSelected>(
 	queryFn: (
 		params: any,
 		ctx: QueryFunctionContext<any, any>,
-	) => TData | Promise<TData>,
+	) => TData | Promise<TData> | AsyncIterable<TData>,
 	getNextPageParam: GetNextPageParamFunction<TPageParam, TData>,
 	shouldFetchNextPage: (
 		combined: TSelected | undefined,
@@ -328,32 +366,59 @@ function buildInfiniteCrawlingQueryFn<TData, TPageParam, TSelected>(
 	ctx: QueryFunctionContext<any, TPageParam>,
 ) => Promise<CrawlEnvelope<TSelected, TPageParam>> {
 	return async (params, crawlOptions, context) => {
+		if (context.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+
+		const ctx = { ...context, pageParam: context.pageParam as unknown };
+		const initialResult = queryFn(params, ctx as any);
+
+		// ── Async iterable path ──────────────────────────────────────────────
+		if (isAsyncIterable<TData>(initialResult)) {
+			const pages: TData[] = [];
+			let acc: TSelected | undefined = undefined;
+			let nextBatchParam: TPageParam | null | undefined = null;
+
+			for await (const page of initialResult) {
+				if (context.signal?.aborted) break;
+				pages.push(page);
+				acc = reduce(acc, page);
+
+				const nextParam = getNextPageParam(page, pages, undefined as any, []);
+				nextBatchParam = nextParam ?? null;
+
+				if (nextParam == null) break;
+				if (!shouldFetchNextPage(acc, crawlOptions)) break;
+			}
+
+			if (acc === undefined) throw new DOMException('Aborted', 'AbortError');
+			return { data: acc, nextPageParam: nextBatchParam };
+		}
+
+		// ── Cursor-based path ────────────────────────────────────────────────
 		const pages: TData[] = [];
 		const pageParams: TPageParam[] = [];
 		let currentParam = context.pageParam as TPageParam;
 		let acc: TSelected | undefined = undefined;
 		let nextBatchParam: TPageParam | null | undefined = null;
-		const ctx = { ...context, pageParam: currentParam as unknown };
+		let nextResult: Promise<TData> = initialResult as Promise<TData>;
 
 		while (true) {
-			if (context.signal?.aborted) break;
-
-			ctx.pageParam = currentParam;
-			const page = await queryFn(params, ctx as any);
+			const page = await nextResult;
 			pages.push(page);
 			pageParams.push(currentParam);
 			acc = reduce(acc, page);
 
 			if (context.signal?.aborted) break;
 
-			// Capture next-batch starting point before deciding to stop.
 			const nextParam = getNextPageParam(page, pages, currentParam, pageParams);
 			nextBatchParam = nextParam ?? null;
 
 			if (nextParam == null) break;
 			if (!shouldFetchNextPage(acc, crawlOptions)) break;
-
 			currentParam = nextParam as TPageParam;
+
+			if (context.signal?.aborted) break;
+			ctx.pageParam = currentParam;
+			nextResult = queryFn(params, ctx as any) as Promise<TData>;
 		}
 
 		if (acc === undefined) throw new DOMException('Aborted', 'AbortError');
@@ -383,17 +448,19 @@ function buildFactory(
 
 	const infiniteNamespace: QueryKey = [...namespace, 'infinite'];
 
+	// Crawling activates when shouldFetchNextPage is set. For cursor-based pagination
+	// getNextPageParam is also required; for async iterable queryFns it is optional
+	// (the iterator manages its own cursor) but still needed for .infinite() mode.
 	const hasCrawling =
 		rawQueryFn !== undefined &&
-		getNextPageParam !== undefined &&
 		shouldFetchNextPage !== undefined;
 
-	const hasInfiniteCrawling = hasCrawling && reduce !== undefined;
+	const hasInfiniteCrawling = hasCrawling && reduce !== undefined && getNextPageParam !== undefined;
 
 	const crawlingFn = hasCrawling
 		? buildCrawlingQueryFn(
 				rawQueryFn!,
-				getNextPageParam!,
+				getNextPageParam,
 				initialPageParam,
 				shouldFetchNextPage!,
 				reduce,
@@ -668,6 +735,74 @@ export function queryFactory<
 	TChildCrawlOptions,
 	TParentHasReduce
 >;
+
+/**
+ * Creates a standalone factory whose queryFn returns an AsyncIterable (e.g. an AWS SDK v3
+ * paginator). The library drives the crawl with `for await...of`; `getNextPageParam` and
+ * `initialPageParam` are not required for `useQuery` mode. When `reduce` is present,
+ * `shouldFetchNextPage` receives `TSelected` (never undefined).
+ */
+export function queryFactory<
+	TParams = void,
+	TData = unknown,
+	TError = Error,
+	TSelected = TData,
+	TPageParam = unknown,
+	TCrawlOptions extends Record<string, unknown> = Record<string, unknown>,
+>(
+	config: StandardQueryOptions<TError, TData> & {
+		queryKey: QueryKey;
+		queryFn: (
+			params: TParams,
+			context: QueryFunctionContext<
+				QueryKey,
+				[unknown] extends [TPageParam] ? never : TPageParam
+			>,
+		) => AsyncIterable<TData>;
+		select?: (data: TData) => TSelected;
+		getNextPageParam?: GetNextPageParamFunction<TPageParam, TData>;
+		initialPageParam?: TPageParam;
+		getPreviousPageParam?: GetPreviousPageParamFunction<TPageParam, TData>;
+		reduce: (accumulator: TSelected | undefined, page: TData) => TSelected;
+		shouldFetchNextPage?: (
+			combined: TSelected,
+			crawlOptions: TCrawlOptions,
+		) => boolean;
+	},
+): QueryFactory<TParams, TData, TError, TSelected, TPageParam, TCrawlOptions, true>;
+
+/**
+ * Creates a standalone factory whose queryFn returns an AsyncIterable, without a `reduce`
+ * function. Result is `TData[]` (one element per yielded page).
+ */
+export function queryFactory<
+	TParams = void,
+	TData = unknown,
+	TError = Error,
+	TSelected = TData,
+	TPageParam = unknown,
+	TCrawlOptions extends Record<string, unknown> = Record<string, unknown>,
+>(
+	config: StandardQueryOptions<TError, TData> & {
+		queryKey: QueryKey;
+		queryFn: (
+			params: TParams,
+			context: QueryFunctionContext<
+				QueryKey,
+				[unknown] extends [TPageParam] ? never : TPageParam
+			>,
+		) => AsyncIterable<TData>;
+		select?: (data: TData) => TSelected;
+		getNextPageParam?: GetNextPageParamFunction<TPageParam, TData>;
+		initialPageParam?: TPageParam;
+		getPreviousPageParam?: GetPreviousPageParamFunction<TPageParam, TData>;
+		reduce?: never;
+		shouldFetchNextPage: (
+			combined: TSelected | undefined,
+			crawlOptions: TCrawlOptions,
+		) => boolean;
+	},
+): QueryFactory<TParams, TData, TError, TSelected, TPageParam, TCrawlOptions, false>;
 
 // ─── Implementation ──────────────────────────────────────────────────────────
 

@@ -425,6 +425,137 @@ describe('queryFactory – crawling', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Async iterable queryFn (e.g. AWS SDK v3 paginators)
+// ---------------------------------------------------------------------------
+
+async function* makePages(pages: PagedUsers[]): AsyncIterable<PagedUsers> {
+  for (const page of pages) yield page;
+}
+
+describe('queryFactory – async iterable queryFn', () => {
+  it('crawls all yielded pages and accumulates via reduce', async () => {
+    const allPages: PagedUsers[] = [
+      { users: [{ id: '1', name: 'Alice' }], nextCursor: 'c2' },
+      { users: [{ id: '2', name: 'Bob' }], nextCursor: null },
+    ];
+    const factory = queryFactory({
+      queryKey: ['users'],
+      queryFn: () => makePages(allPages),
+      shouldFetchNextPage: () => true,
+      reduce: (acc: User[] | undefined, p: PagedUsers): User[] => [...(acc ?? []), ...p.users],
+    });
+
+    const result = await factory(undefined).queryFn!(ctx);
+    expect(result).toEqual([{ id: '1', name: 'Alice' }, { id: '2', name: 'Bob' }]);
+  });
+
+  it('stops early when shouldFetchNextPage returns false', async () => {
+    async function* infinitePages(): AsyncIterable<PagedUsers> {
+      let i = 0;
+      while (true) yield { users: [{ id: String(++i), name: `u${i}` }], nextCursor: `c${i}` };
+    }
+    const factory = queryFactory({
+      queryKey: ['users'],
+      queryFn: () => infinitePages(),
+      shouldFetchNextPage: (users: User[] | undefined) => (users?.length ?? 0) < 2,
+      reduce: (acc: User[] | undefined, p: PagedUsers): User[] => [...(acc ?? []), ...p.users],
+    });
+
+    const result = await factory(undefined).queryFn!(ctx);
+    expect(result).toHaveLength(2);
+  });
+
+  it('getNextPageParam is not required — iterator manages its own cursor', async () => {
+    const factory = queryFactory({
+      queryKey: ['users'],
+      queryFn: () => makePages([{ users: [{ id: '1', name: 'Alice' }], nextCursor: null }]),
+      shouldFetchNextPage: () => false,
+      reduce: (acc: User[] | undefined, p: PagedUsers): User[] => [...(acc ?? []), ...p.users],
+    });
+
+    expect(factory(undefined).queryFn).toBeDefined();
+    const result = await factory(undefined).queryFn!(ctx);
+    expect(result).toEqual([{ id: '1', name: 'Alice' }]);
+  });
+
+  it('ctx.pageParam is available for passing startingToken to a paginator', async () => {
+    const receivedPageParams: unknown[] = [];
+    const factory = queryFactory({
+      queryKey: ['users'],
+      queryFn: (_params, ctx) => {
+        receivedPageParams.push(ctx.pageParam);
+        return makePages([{ users: [], nextCursor: null }]);
+      },
+      shouldFetchNextPage: () => false,
+      initialPageParam: 'myToken' as string | undefined,
+      reduce: (acc): User[] => acc ?? [],
+    });
+
+    await factory(undefined).queryFn!(ctx);
+    expect(receivedPageParams[0]).toBe('myToken');
+  });
+
+  it('throws AbortError when signal is already aborted', async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    const factory = queryFactory({
+      queryKey: ['users'],
+      queryFn: () => makePages([{ users: [{ id: '1', name: 'Alice' }], nextCursor: null }]),
+      shouldFetchNextPage: () => true,
+      reduce: (acc: User[] | undefined, p: PagedUsers): User[] => [...(acc ?? []), ...p.users],
+    });
+
+    await expect(
+      factory(undefined).queryFn!({ signal: controller.signal, meta: undefined } as any),
+    ).rejects.toThrow('Aborted');
+  });
+
+  it('returns partial results when signal aborts mid-iteration', async () => {
+    const controller = new AbortController();
+    let count = 0;
+    async function* pages(): AsyncIterable<PagedUsers> {
+      while (true) {
+        yield { users: [{ id: String(++count), name: `u${count}` }], nextCursor: 'next' };
+        if (count === 1) controller.abort();
+      }
+    }
+    const factory = queryFactory({
+      queryKey: ['users'],
+      queryFn: () => pages(),
+      shouldFetchNextPage: () => true,
+      reduce: (acc: User[] | undefined, p: PagedUsers): User[] => [...(acc ?? []), ...p.users],
+    });
+
+    const result = await factory(undefined).queryFn!({
+      signal: controller.signal,
+      meta: undefined,
+    } as any);
+    expect(result).toEqual([{ id: '1', name: 'u1' }]);
+  });
+
+  it('.infinite() works with async iterable — ctx.pageParam as startingToken', async () => {
+    const startingTokens: unknown[] = [];
+    const factory = queryFactory({
+      queryKey: ['users'],
+      queryFn: (_params, ctx) => {
+        startingTokens.push(ctx.pageParam);
+        return makePages([{ users: [{ id: '1', name: 'Alice' }], nextCursor: 'next' }]);
+      },
+      getNextPageParam: (p: PagedUsers) => p.nextCursor,
+      initialPageParam: null as string | null,
+      shouldFetchNextPage: () => false,
+      reduce: (acc: User[] | undefined, p: PagedUsers): User[] => [...(acc ?? []), ...p.users],
+    });
+
+    const envelope = await factory.infinite(undefined).queryFn!({ ...ctx, pageParam: 'token-abc' });
+    expect(startingTokens[0]).toBe('token-abc');
+    expect((envelope as any).data).toEqual([{ id: '1', name: 'Alice' }]);
+    expect((envelope as any).nextPageParam).toBe('next');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Composition
 // ---------------------------------------------------------------------------
 

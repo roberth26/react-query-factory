@@ -193,6 +193,14 @@ const ALL_INSTANCE_TYPES: InstanceTypeInfo[] = [
 	{ InstanceType: 'p3.8xlarge',   CurrentGeneration: true, VCpuInfo: { DefaultVCpus: 32 }, MemoryInfo: { SizeInMiB: 245760 } },
 ];
 
+// ── Paginator config (mirrors AWS SDK v3 PaginationConfiguration) ─────────────
+
+export interface PaginationConfiguration {
+	client: EC2Client;
+	pageSize?: number;
+	startingToken?: string;
+}
+
 // ── EC2Client ─────────────────────────────────────────────────────────────────
 
 export class EC2Client {
@@ -252,4 +260,24 @@ export class EC2Client {
 		const nextToken = start + MaxResults < instances.length ? String(start + MaxResults) : undefined;
 		return { Reservations: [{ Instances: page }], NextToken: nextToken };
 	}
+}
+
+// ── Paginators (mirror AWS SDK v3 paginateXxx pattern) ────────────────────────
+
+export async function* paginateDescribeInstances(
+	config: PaginationConfiguration,
+	input: DescribeInstancesRequest,
+): AsyncGenerator<DescribeInstancesResult> {
+	let nextToken: string | undefined = config.startingToken;
+	do {
+		const response = await config.client.send(
+			new DescribeInstancesCommand({
+				...input,
+				MaxResults: config.pageSize ?? input.MaxResults,
+				NextToken: nextToken,
+			}),
+		);
+		yield response;
+		nextToken = response.NextToken;
+	} while (nextToken != null);
 }
