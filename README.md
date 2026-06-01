@@ -30,7 +30,30 @@ function useInstances(params: DescribeInstancesCommandInput) {
 }
 ```
 
-Works, but the key only exists inside the hook. Prefetching in a route loader, invalidating after a mutation, or fetching imperatively all require knowing `['instances', params]` without calling the hook.
+Works, until requirements grow. You need a `select` option — so the hook grows a generic. You need a `useInfiniteQuery` variant — so you write a second hook with a key differentiator to avoid a cache collision. You need to prefetch in a route loader — but the key is trapped inside the hook.
+
+```typescript
+function useInstances<TSelected = Instance[]>(
+  params: DescribeInstancesCommandInput,
+  options?: { select?: (data: Instance[]) => TSelected },
+) {
+  return useQuery({
+    queryKey: ['instances', params],
+    queryFn: () => fetchInstances(params),
+    select: options?.select,
+  });
+}
+
+// separate hook, duplicated key and queryFn, must stay in sync manually
+function useInstancesInfinite(params: DescribeInstancesCommandInput) {
+  return useInfiniteQuery({
+    queryKey: ['instances', 'infinite', params],
+    // ...
+  });
+}
+```
+
+The generics multiply with every new transform. The key is still trapped — prefetching and invalidation still can't reach it from outside.
 
 ### Step 2 — `queryOptions` for colocation
 
@@ -126,7 +149,7 @@ Now you have two separate factories that duplicate the key and queryFn and need 
 ### What's missing
 
 - Define the query **once**: key, queryFn, pagination config
-- Let each **call site** decide how much to crawl (e.g. 50 records or all of them)
+- Let each **call site** decide how much to crawl (e.g. 50 records, all of them, or none)
 - Optionally have `useQuery` crawl and return the **accumulated result** instead of a single page
 - Use **async iterables** as `queryFn` — pass a paginator function directly, no cursor wiring required
 - Have `.infinite()` available on the **same factory**, no duplication
