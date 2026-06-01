@@ -18,12 +18,12 @@ const NAV_ITEMS = [
 	{ type: 'link', text: 'Playbook', href: '/playbook' },
 	{ type: 'divider' },
 	{ type: 'link', text: 'Basic', href: '/basic' },
-	{ type: 'link', text: 'Exhaustive crawl', href: '/crawl' },
-	{ type: 'link', text: 'Crawl for dropdown', href: '/dropdown' },
-	{ type: 'link', text: 'Infinite', href: '/infinite' },
-	{ type: 'link', text: 'Bounded crawl', href: '/bounded-crawl' },
-	{ type: 'link', text: 'Invalidation', href: '/invalidate' },
+	{ type: 'link', text: 'Crawl-then-render', href: '/crawl-then-render' },
+	{ type: 'link', text: 'Render-while-crawling', href: '/render-while-crawling' },
+	{ type: 'link', text: 'On demand', href: '/on-demand' },
+	{ type: 'link', text: 'Client-side search', href: '/client-search' },
 	{ type: 'link', text: 'Composition', href: '/composition' },
+	{ type: 'link', text: 'Invalidation', href: '/invalidate' },
 ] as const satisfies SideNavigationProps.Item[];
 
 export default function App() {

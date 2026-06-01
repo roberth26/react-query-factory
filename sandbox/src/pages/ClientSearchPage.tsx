@@ -16,10 +16,10 @@ import {
 	Table,
 	TextContent,
 } from '@cloudscape-design/components';
-import pageSource from './BoundedCrawlPage.tsx?raw';
+import pageSource from './ClientSearchPage.tsx?raw';
 import { CodeBlock, INSTANCE_COLUMN_DEFS, PAGE_SIZE_OPTIONS } from '../shared.js';
 
-export const handle = { label: 'Bounded crawl', source: pageSource };
+export const handle = { label: 'Client-side search', source: pageSource };
 
 const FACTORY_CODE = `\
 const findInstance = queryFactory(describeInstances, {
@@ -29,15 +29,15 @@ const findInstance = queryFactory(describeInstances, {
     opts.instanceId != null && !instances.some(i => i.InstanceId === opts.instanceId),
 });
 
-// Crawl stops the moment the target appears — or exhausts all pages.
-// Re-searching the same ID costs zero API calls (cache hit).
+// Crawl stops when the client-side condition is met — in this case, when the target instance ID appears in the accumulated results.
+// Or exhausts all pages. Re-searching the same ID costs zero API calls (cache hit).
 useQuery({ ...findInstance({ MaxResults: 5 }, { instanceId }), enabled: !!instanceId })`;
 
 export async function loader() {
 	return null;
 }
 
-function BoundedCrawlPage() {
+function ClientSearchPage() {
 	const [input, setInput] = useState('');
 	const [targetId, setTargetId] = useState<string | undefined>(undefined);
 	const [preferences, setPreferences] = useState({ pageSize: 10 });
@@ -65,16 +65,13 @@ function BoundedCrawlPage() {
 		<SpaceBetween size="m">
 			<TextContent>
 				<p>
-					The AWS EC2 API has no server-side lookup by instance ID — finding a specific instance
-					requires scanning pages sequentially until it appears. An exhaustive crawl wastes API
-					calls when the target is near the beginning of the result set.{' '}
-					<code>queryFactory</code> supports child factories that inherit the parent&#39;s{' '}
-					<code>queryFn</code>, <code>reduce</code>, and pagination config while overriding only{' '}
-					<code>shouldFetchNextPage</code>. Here, <code>findInstance</code> stops the moment the
-					target instance ID appears in the accumulated results. Re-searching the same ID is free
-					— TanStack Query serves it from cache. The UX implication is a fast, cache-aware search:
-					early results arrive with minimal API traffic, and repeat queries never touch the
-					network.
+					When the API has no server-side search or filter endpoint, you can crawl pages
+					client-side and stop the moment your condition is satisfied.{' '}
+					<code>findInstance</code> inherits <code>describeInstances</code>&#39;s fetch and
+					pagination config, overriding only <code>shouldFetchNextPage</code> to stop once the
+					target appears in the accumulated results. Repeat searches cost zero API calls —
+					TanStack serves them from cache. The UX implication is a fast, cache-aware search
+					that only touches as many pages as it needs.
 				</p>
 			</TextContent>
 <ExpandableSection headerText="Factory code" variant="container">
@@ -118,8 +115,10 @@ function BoundedCrawlPage() {
 			</Container>
 			{data && data.length > 0 && (
 				<Table
-					stripedRows
 					{...collectionProps}
+					selectionType="single"
+					selectedItems={found ? [found] : []}
+					onSelectionChange={() => {}}
 					items={items}
 					columnDefinitions={[...INSTANCE_COLUMN_DEFS]}
 					pagination={<Pagination {...paginationProps} />}
@@ -150,4 +149,4 @@ function BoundedCrawlPage() {
 	);
 }
 
-export { BoundedCrawlPage as Component };
+export { ClientSearchPage as Component };

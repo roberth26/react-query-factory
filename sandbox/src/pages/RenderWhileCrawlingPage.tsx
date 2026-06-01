@@ -4,7 +4,7 @@ import { useCollection } from '@cloudscape-design/collection-hooks';
 import type { Instance } from '../aws-sdk-mock.js';
 import { describeInstances } from '../queries.js';
 import { queryClient } from '../queryClient.js';
-import pageSource from './ExhaustiveCrawlPage.tsx?raw';
+import pageSource from './RenderWhileCrawlingPage.tsx?raw';
 import {
 	CollectionPreferences,
 	ExpandableSection,
@@ -18,36 +18,41 @@ import {
 } from '@cloudscape-design/components';
 import { CodeBlock, INSTANCE_COLUMN_DEFS, PAGE_SIZE_OPTIONS } from '../shared.js';
 
-export const handle = { label: 'Exhaustive crawl', source: pageSource };
+export const handle = { label: 'Render-while-crawling', source: pageSource };
 
-const FACTORY_CODE = `\
-// minResults: 1 → shouldFetchNextPage returns false after the first API call.
-// Each fetchNextPage() = one server page. Auto-advance drives the full crawl.
+const SERVER_PAGE_SIZE = 5;
+
+export async function loader() {
+	await queryClient.prefetchInfiniteQuery(
+		describeInstances.infinite({ MaxResults: SERVER_PAGE_SIZE }, { minResults: 20 }),
+	);
+	return null;
+}
+
+function RenderWhileCrawlingPage() {
+	const [preferences, setPreferences] = useState({ pageSize: 20 });
+	const { pageSize } = preferences;
+	const apiCallsPerBatch = Math.ceil(pageSize / SERVER_PAGE_SIZE);
+
+	const { data, isLoading, isFetchingNextPage, hasNextPage, fetchNextPage } =
+		useInfiniteQuery(describeInstances.infinite({ MaxResults: SERVER_PAGE_SIZE }, { minResults: pageSize }));
+
+	const factoryCode = `\
+// minResults matches the UI page size — each virtual page crawls until it's full.
+// With a server page size of ${SERVER_PAGE_SIZE} and minResults of ${pageSize}, each batch = ${apiCallsPerBatch} API call${apiCallsPerBatch !== 1 ? 's' : ''}.
 const { data, hasNextPage, isFetchingNextPage, fetchNextPage } = useInfiniteQuery(
-  describeInstances.infinite({ MaxResults: 20 }, { minResults: 1 }),
+  describeInstances.infinite({ MaxResults: ${SERVER_PAGE_SIZE} }, { minResults: ${pageSize} }),
 );
 
 useEffect(() => {
   if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
 }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
-// data.pages.flat() streams: [] → [1–20] → [1–40] → … → [1–95]`;
+// data.pages.flat() streams in ${pageSize}-item batches: [] → [1–${pageSize}] → [1–${pageSize * 2}] → … → [1–95]`;
 
-export async function loader() {
-	await queryClient.prefetchInfiniteQuery(
-		describeInstances.infinite({ MaxResults: 20 }, { minResults: 1 }),
-	);
-	return null;
-}
-
-function ExhaustiveCrawlPage() {
-	const [preferences, setPreferences] = useState({ pageSize: 20 });
-
-	const { data, isLoading, isFetchingNextPage, hasNextPage, fetchNextPage } =
-		useInfiniteQuery(describeInstances.infinite({ MaxResults: 20 }, { minResults: 1 }));
-
-	// minResults: 1 means each fetchNextPage() = exactly one server API call.
-	// Auto-advance as soon as the previous page lands.
+	// minResults = pageSize ensures each virtual page is fully filled before rendering.
+	// The crawling machinery fetches additional API pages when the server returns fewer
+	// items than MaxResults, then auto-advances to the next batch.
 	useEffect(() => {
 		if (hasNextPage && !isFetchingNextPage) {
 			void fetchNextPage();
@@ -68,20 +73,19 @@ function ExhaustiveCrawlPage() {
 		<SpaceBetween size="m">
 			<TextContent>
 				<p>
-					When you need to search or filter across the full dataset, you have two strategies:
-					block rendering until the crawl is complete ("crawl-then-render"), or render each
-					page as it arrives and keep updating ("render-while-crawling"). The{' '}
-					<strong>Crawl for dropdown</strong> demo uses the first strategy because a partial
-					option list is worse than no list. This demo uses the second: an infinite query
-					where <code>minResults: 1</code> keeps each virtual page to exactly one server
-					response, and a <code>useEffect</code> auto-advances to the next page the moment
-					the previous one lands. The factory&#39;s crawl machinery isn&#39;t needed here —
-					what matters is that each page delivers a render. The UX tradeoff: users see rows
-					immediately, but the search may miss instances that haven&#39;t loaded yet.
+					When results need to appear progressively rather than all at once,
+					render-while-crawling streams data into the UI as each batch arrives.{' '}
+					<code>minResults</code> is set to the UI page size so each virtual page crawls
+					as many API calls as needed to accumulate a full batch before triggering a
+					render. If the server returns fewer items than <code>MaxResults</code>, the
+					crawling machinery fetches more automatically. A <code>useEffect</code>{' '}
+					auto-advances to the next virtual page the moment the previous one completes.
+					Unlike <strong>Crawl-then-render</strong>, users see rows immediately. Unlike{' '}
+					<strong>On demand</strong>, no user interaction is needed.
 				</p>
 			</TextContent>
 <ExpandableSection headerText="Factory code" variant="container">
-				<CodeBlock code={FACTORY_CODE} />
+				<CodeBlock code={factoryCode} />
 			</ExpandableSection>
 			<Table
 				stripedRows
@@ -132,7 +136,7 @@ function ExhaustiveCrawlPage() {
 						}
 						actions={isStreaming ? <Spinner /> : undefined}
 					>
-						Instances — exhaustive crawl
+						Instances — render-while-crawling
 					</Header>
 				}
 				trackBy="InstanceId"
@@ -141,4 +145,4 @@ function ExhaustiveCrawlPage() {
 	);
 }
 
-export { ExhaustiveCrawlPage as Component };
+export { RenderWhileCrawlingPage as Component };

@@ -4,7 +4,7 @@ import { useCollection } from '@cloudscape-design/collection-hooks';
 import type { DescribeInstancesRequest, InstanceTypeInfo } from '../aws-sdk-mock.js';
 import { describeInstanceTypes, describeInstances } from '../queries.js';
 import { queryClient } from '../queryClient.js';
-import pageSource from './DropdownPage.tsx?raw';
+import pageSource from './CrawlThenRenderPage.tsx?raw';
 import {
 	CollectionPreferences,
 	Container,
@@ -21,7 +21,7 @@ import {
 } from '@cloudscape-design/components';
 import { CodeBlock, INSTANCE_COLUMN_DEFS, PAGE_SIZE_OPTIONS } from '../shared.js';
 
-export const handle = { label: 'Crawl for dropdown', source: pageSource };
+export const handle = { label: 'Crawl-then-render', source: pageSource };
 
 const FACTORY_CODE = `\
 // Number.MAX_SAFE_INTEGER ensures the crawl never stops early.
@@ -56,7 +56,7 @@ export async function loader() {
 	return null;
 }
 
-function DropdownPage() {
+function CrawlThenRenderPage() {
 	const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
 	const [preferences, setPreferences] = useState({ pageSize: 20 });
 
@@ -92,7 +92,7 @@ function DropdownPage() {
 				<p>
 					Some data must be complete before the UI is useful — a dropdown with half the options is
 					worse than a spinner. This is the "crawl-then-render" pattern, in contrast to the{' '}
-					<strong>Exhaustive crawl</strong> demo which streams results while crawling. Here,{' '}
+					<strong>Render-while-crawling</strong> demo which streams results while crawling. Here,{' '}
 					<code>describeInstanceTypes</code> uses the same <code>minResults</code> option as{' '}
 					<code>describeInstances</code>; passing <code>Number.MAX_SAFE_INTEGER</code> tells the
 					factory to exhaust all pages unconditionally. Both queries run in parallel: instance
@@ -177,4 +177,4 @@ function DropdownPage() {
 	);
 }
 
-export { DropdownPage as Component };
+export { CrawlThenRenderPage as Component };

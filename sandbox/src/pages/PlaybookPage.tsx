@@ -34,31 +34,31 @@ const BASIC: PatternInfo = {
 
 const CRAWL_THEN_RENDER: PatternInfo = {
 	name: 'Crawl-then-render',
-	href: '/dropdown',
+	href: '/crawl-then-render',
 	tag: 'Blocking crawl',
 	tagColor: 'red',
 	useWhen: 'UI is useless with partial data — dropdown options, counts, totals',
 };
 
 const CONDITIONAL_CRAWL: PatternInfo = {
-	name: 'Conditional crawl',
-	href: '/bounded-crawl',
+	name: 'Client-side search',
+	href: '/client-search',
 	tag: 'Early stop',
 	tagColor: 'blue',
-	useWhen: 'Need a record subset — crawl stops when accumulated results meet a condition',
+	useWhen: 'Need a record subset — stop crawling when accumulated results meet a condition, for APIs without server-side search',
 };
 
 const RENDER_WHILE_CRAWLING: PatternInfo = {
 	name: 'Render-while-crawling',
-	href: '/crawl',
+	href: '/render-while-crawling',
 	tag: 'Streaming',
 	tagColor: 'green',
 	useWhen: 'UI can render partial results — rows stream in as each page arrives',
 };
 
 const INFINITE: PatternInfo = {
-	name: 'Infinite pagination',
-	href: '/infinite',
+	name: 'On demand',
+	href: '/on-demand',
 	tag: 'On demand',
 	tagColor: 'blue',
 	useWhen: 'User navigates pages; each page crawls API calls until the UI page size is met',

@@ -4,7 +4,7 @@ import { useCollection } from '@cloudscape-design/collection-hooks';
 import type { Instance } from '../aws-sdk-mock.js';
 import { describeInstances } from '../queries.js';
 import { queryClient } from '../queryClient.js';
-import pageSource from './InfinitePage.tsx?raw';
+import pageSource from './OnDemandPage.tsx?raw';
 import {
 	Box,
 	CollectionPreferences,
@@ -19,7 +19,7 @@ import {
 } from '@cloudscape-design/components';
 import { CodeBlock, INSTANCE_COLUMN_DEFS, PAGE_SIZE_OPTIONS } from '../shared.js';
 
-export const handle = { label: 'Infinite', source: pageSource };
+export const handle = { label: 'On demand', source: pageSource };
 
 const SERVER_PAGE_SIZE = 5;
 
@@ -30,16 +30,17 @@ export async function loader() {
 	return null;
 }
 
-function InfinitePage() {
-	const [uiPageSize, setUiPageSize] = useState(20);
+function OnDemandPage() {
 	const [currentPage, setCurrentPage] = useState(1);
-	const [preferences, setPreferences] = useState({ pageSize: uiPageSize });
+	const [preferences, setPreferences] = useState({ pageSize: 20 });
+	const { pageSize } = preferences;
+	const apiCallsPerPage = Math.ceil(pageSize / SERVER_PAGE_SIZE);
 
 	const { data, isLoading, isFetchingNextPage, hasNextPage, fetchNextPage } =
 		useInfiniteQuery(
 			describeInstances.infinite(
 				{ MaxResults: SERVER_PAGE_SIZE },
-				{ minResults: uiPageSize },
+				{ minResults: pageSize },
 			),
 		);
 
@@ -47,7 +48,6 @@ function InfinitePage() {
 	const currentItems = pages[currentPage - 1] ?? [];
 	const pagesCount = pages.length + (hasNextPage ? 1 : 0);
 	const totalLoaded = pages.reduce((n, p) => n + p.length, 0);
-	const apiCallsPerPage = Math.ceil(uiPageSize / SERVER_PAGE_SIZE);
 
 	function handlePageChange(page: number) {
 		if (page > pages.length && hasNextPage) {
@@ -68,7 +68,7 @@ function InfinitePage() {
 useInfiniteQuery(
   describeInstances.infinite(
     { MaxResults: ${SERVER_PAGE_SIZE} },         // server page size
-    { minResults: ${uiPageSize} },       // crawl until this many items are in the page
+    { minResults: ${pageSize} },         // crawl until this many items are in the page
   )
 )
 // data.pages → Instance[][]  (one flat array per UI page)`;
@@ -119,9 +119,7 @@ useInfiniteQuery(
 						cancelLabel="Cancel"
 						preferences={preferences}
 						onConfirm={({ detail }) => {
-							const ps = (detail as typeof preferences).pageSize;
 							setPreferences(detail as typeof preferences);
-							setUiPageSize(ps);
 							setCurrentPage(1);
 						}}
 						pageSizePreference={{
@@ -154,4 +152,4 @@ useInfiniteQuery(
 	);
 }
 
-export { InfinitePage as Component };
+export { OnDemandPage as Component };
