@@ -4,4 +4,4 @@ sandbox/node_modules
 sandbox/dist
 sandbox/tsconfig.tsbuildinfo
 sandbox/test-results
-.claude
+.claude/settings.local.json

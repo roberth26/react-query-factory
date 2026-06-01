@@ -37,7 +37,8 @@ describe('queryFactory – basic', () => {
   it('appends params to the namespace as the final key element', () => {
     const factory = queryFactory({
       queryKey: ['users'],
-      queryFn: async (params: { id: string }) => ({ id: params.id, name: 'x' }) as User,
+      queryFn: async (params: { id: string }) =>
+        ({ id: params.id, name: 'x' }) as User,
     });
 
     expect(factory({ id: 'u1' }).queryKey).toEqual(['users', { id: 'u1' }]);
@@ -45,14 +46,19 @@ describe('queryFactory – basic', () => {
   });
 
   it('closes params into queryFn — callers never handle the key', async () => {
-    const spy = vi.fn(async (params: { id: string }) => ({ id: params.id, name: 'x' }) as User);
+    const spy = vi.fn(
+      async (params: { id: string }) => ({ id: params.id, name: 'x' }) as User,
+    );
     const factory = queryFactory({
       queryKey: ['users'],
       queryFn: spy,
     });
 
     await factory({ id: 'abc' }).queryFn!(ctx);
-    expect(spy).toHaveBeenCalledWith({ id: 'abc' }, expect.objectContaining({ signal: ctx.signal }));
+    expect(spy).toHaveBeenCalledWith(
+      { id: 'abc' },
+      expect.objectContaining({ signal: ctx.signal }),
+    );
   });
 
   it('forwards standard options', () => {
@@ -71,7 +77,7 @@ describe('queryFactory – basic', () => {
   });
 
   it('passes select through', () => {
-    const select = (users: User[]) => users.map((u) => u.name);
+    const select = (users: User[]) => users.map(u => u.name);
     const factory = queryFactory({
       queryKey: ['users'],
       queryFn: async () => [] as User[],
@@ -105,8 +111,11 @@ describe('queryFactory – .infinite', () => {
       queryFn: async (p: { filter: string }) => [] as User[],
     });
 
-    expect(factory.infinite({ filter: 'active' }).queryKey)
-      .toEqual(['users', 'infinite', { filter: 'active' }]);
+    expect(factory.infinite({ filter: 'active' }).queryKey).toEqual([
+      'users',
+      'infinite',
+      { filter: 'active' },
+    ]);
   });
 
   it('has just the namespace + "infinite" when params are void', () => {
@@ -119,7 +128,9 @@ describe('queryFactory – .infinite', () => {
   });
 
   it('closes params into the infinite queryFn', async () => {
-    const spy = vi.fn(async (params: { id: string }) => ({ id: params.id, name: 'x' }) as User);
+    const spy = vi.fn(
+      async (params: { id: string }) => ({ id: params.id, name: 'x' }) as User,
+    );
     const factory = queryFactory({
       queryKey: ['users'],
       queryFn: spy,
@@ -128,7 +139,10 @@ describe('queryFactory – .infinite', () => {
     });
 
     await factory.infinite({ id: 'z' }).queryFn!({ ...ctx, pageParam: null });
-    expect(spy).toHaveBeenCalledWith({ id: 'z' }, expect.objectContaining({ pageParam: null }));
+    expect(spy).toHaveBeenCalledWith(
+      { id: 'z' },
+      expect.objectContaining({ pageParam: null }),
+    );
   });
 
   it('exposes getNextPageParam and initialPageParam', () => {
@@ -147,7 +161,10 @@ describe('queryFactory – .infinite', () => {
 
   it('wraps getNextPageParam with shouldFetchNextPage', () => {
     const gnp = vi.fn((_p: PagedUsers) => 'next');
-    const sfnp = vi.fn((_combined: PagedUsers | undefined, _opts: Record<string, unknown>) => false);
+    const sfnp = vi.fn(
+      (_combined: PagedUsers | undefined, _opts: Record<string, unknown>) =>
+        false,
+    );
 
     const factory = queryFactory({
       queryKey: ['users'],
@@ -170,14 +187,20 @@ describe('queryFactory – .infinite', () => {
 
     const factory = queryFactory({
       queryKey: ['users'],
-      queryFn: async () => ({ users: [], nextCursor: 'next-cursor' }) as PagedUsers,
+      queryFn: async () =>
+        ({ users: [], nextCursor: 'next-cursor' }) as PagedUsers,
       getNextPageParam: gnp,
       shouldFetchNextPage: sfnp,
       initialPageParam: null as string | null,
     });
 
     const page: PagedUsers = { users: [], nextCursor: 'next-cursor' };
-    const result = factory.infinite(undefined).getNextPageParam!(page, [page], null, [null]);
+    const result = factory.infinite(undefined).getNextPageParam!(
+      page,
+      [page],
+      null,
+      [null],
+    );
 
     expect(sfnp).toHaveBeenCalled();
     expect(gnp).toHaveBeenCalled();
@@ -201,22 +224,37 @@ describe('queryFactory – .infinite', () => {
     const select = (p: PagedUsers) => p.users;
     const factory = queryFactory({
       queryKey: ['users'],
-      queryFn: async () => ({ users: [{ id: '1', name: 'Alice' }], nextCursor: null }) as PagedUsers,
+      queryFn: async () =>
+        ({
+          users: [{ id: '1', name: 'Alice' }],
+          nextCursor: null,
+        }) as PagedUsers,
       select,
     });
 
     const infiniteSelect = factory.infinite(undefined).select!;
-    const p1: PagedUsers = { users: [{ id: '1', name: 'Alice' }], nextCursor: null };
-    const p2: PagedUsers = { users: [{ id: '2', name: 'Bob' }], nextCursor: null };
+    const p1: PagedUsers = {
+      users: [{ id: '1', name: 'Alice' }],
+      nextCursor: null,
+    };
+    const p2: PagedUsers = {
+      users: [{ id: '2', name: 'Bob' }],
+      nextCursor: null,
+    };
 
-    expect(infiniteSelect({ pages: [p1, p2], pageParams: [null, 'p2'] })).toEqual({
+    expect(
+      infiniteSelect({ pages: [p1, p2], pageParams: [null, 'p2'] }),
+    ).toEqual({
       pages: [[{ id: '1', name: 'Alice' }], [{ id: '2', name: 'Bob' }]],
       pageParams: [null, 'p2'],
     });
   });
 
   it('has no infinite select when no select is configured', () => {
-    const factory = queryFactory({ queryKey: ['users'], queryFn: async () => [] as User[] });
+    const factory = queryFactory({
+      queryKey: ['users'],
+      queryFn: async () => [] as User[],
+    });
     expect(factory.infinite(undefined).select).toBeUndefined();
   });
 });
@@ -248,8 +286,9 @@ describe('queryFactory – crawling', () => {
   });
 
   it('pageParam flows through ctx into the user queryFn', async () => {
-    const pageFn = vi.fn(async (_p: void, _ctx: any) =>
-      ({ users: [], nextCursor: null }) as PagedUsers,
+    const pageFn = vi.fn(
+      async (_p: void, _ctx: any) =>
+        ({ users: [], nextCursor: null }) as PagedUsers,
     );
     const factory = queryFactory({
       queryKey: ['users'],
@@ -268,8 +307,14 @@ describe('queryFactory – crawling', () => {
   });
 
   it('applies reduce as a reducer across pages', async () => {
-    const page: PagedUsers = { users: [{ id: '1', name: 'Alice' }], nextCursor: null };
-    const reduce = vi.fn((acc: User[] | undefined, p: PagedUsers): User[] => [...(acc ?? []), ...p.users]);
+    const page: PagedUsers = {
+      users: [{ id: '1', name: 'Alice' }],
+      nextCursor: null,
+    };
+    const reduce = vi.fn((acc: User[] | undefined, p: PagedUsers): User[] => [
+      ...(acc ?? []),
+      ...p.users,
+    ]);
 
     const factory = queryFactory({
       queryKey: ['users'],
@@ -289,7 +334,8 @@ describe('queryFactory – crawling', () => {
     let call = 0;
     const cursors = ['p2', 'p3', null];
     const pageFn = vi.fn(
-      async () => ({ users: [], nextCursor: cursors[call++] ?? null }) as PagedUsers,
+      async () =>
+        ({ users: [], nextCursor: cursors[call++] ?? null }) as PagedUsers,
     );
 
     const factory = queryFactory({
@@ -311,7 +357,11 @@ describe('queryFactory – crawling', () => {
 
     const factory = queryFactory({
       queryKey: ['users'],
-      queryFn: async () => ({ users: [{ id: '1', name: 'Alice' }], nextCursor: null }) as PagedUsers,
+      queryFn: async () =>
+        ({
+          users: [{ id: '1', name: 'Alice' }],
+          nextCursor: null,
+        }) as PagedUsers,
       getNextPageParam: p => p.nextCursor,
       shouldFetchNextPage: () => true,
       initialPageParam: null as string | null,
@@ -319,12 +369,17 @@ describe('queryFactory – crawling', () => {
     });
 
     await expect(
-      factory(undefined).queryFn!({ signal: controller.signal, meta: undefined } as any),
+      factory(undefined).queryFn!({
+        signal: controller.signal,
+        meta: undefined,
+      } as any),
     ).rejects.toThrow('Aborted');
   });
 
   it('returns empty result when the only page has no data', async () => {
-    const pageFn = vi.fn(async () => ({ users: [], nextCursor: null }) as PagedUsers);
+    const pageFn = vi.fn(
+      async () => ({ users: [], nextCursor: null }) as PagedUsers,
+    );
     const factory = queryFactory({
       queryKey: ['users'],
       queryFn: pageFn,
@@ -346,7 +401,10 @@ describe('queryFactory – crawling', () => {
     const factory = queryFactory({
       queryKey: ['users'],
       queryFn: async () => {
-        const page = { users: [{ id: String(call + 1), name: `u${call + 1}` }], nextCursor: 'next' } as PagedUsers;
+        const page = {
+          users: [{ id: String(call + 1), name: `u${call + 1}` }],
+          nextCursor: 'next',
+        } as PagedUsers;
         if (call++ === 0) controller.abort();
         return page;
       },
@@ -366,14 +424,18 @@ describe('queryFactory – crawling', () => {
   it('propagates queryFn errors thrown on the first page', async () => {
     const factory = queryFactory({
       queryKey: ['users'],
-      queryFn: async () => { throw new Error('network error'); },
+      queryFn: async () => {
+        throw new Error('network error');
+      },
       getNextPageParam: (p: PagedUsers) => p.nextCursor,
       shouldFetchNextPage: () => true,
       initialPageParam: null as string | null,
       reduce: (acc, p): User[] => [...(acc ?? []), ...p.users],
     });
 
-    await expect(factory(undefined).queryFn!(ctx)).rejects.toThrow('network error');
+    await expect(factory(undefined).queryFn!(ctx)).rejects.toThrow(
+      'network error',
+    );
   });
 
   it('propagates queryFn errors thrown mid-crawl', async () => {
@@ -382,7 +444,10 @@ describe('queryFactory – crawling', () => {
       queryKey: ['users'],
       queryFn: async () => {
         if (call++ === 1) throw new Error('page 2 failed');
-        return { users: [{ id: '1', name: 'Alice' }], nextCursor: 'p2' } as PagedUsers;
+        return {
+          users: [{ id: '1', name: 'Alice' }],
+          nextCursor: 'p2',
+        } as PagedUsers;
       },
       getNextPageParam: p => p.nextCursor,
       shouldFetchNextPage: () => true,
@@ -390,14 +455,20 @@ describe('queryFactory – crawling', () => {
       reduce: (acc, p): User[] => [...(acc ?? []), ...p.users],
     });
 
-    await expect(factory(undefined).queryFn!(ctx)).rejects.toThrow('page 2 failed');
+    await expect(factory(undefined).queryFn!(ctx)).rejects.toThrow(
+      'page 2 failed',
+    );
   });
 
   it('shouldFetchNextPage receives undefined as combined when reduce is absent', async () => {
     const sfnp = vi.fn(() => false);
     const factory = queryFactory({
       queryKey: ['users'],
-      queryFn: async () => ({ users: [{ id: '1', name: 'Alice' }], nextCursor: 'next' }) as PagedUsers,
+      queryFn: async () =>
+        ({
+          users: [{ id: '1', name: 'Alice' }],
+          nextCursor: 'next',
+        }) as PagedUsers,
       getNextPageParam: p => p.nextCursor,
       shouldFetchNextPage: sfnp,
       initialPageParam: null as string | null,
@@ -409,7 +480,10 @@ describe('queryFactory – crawling', () => {
 
   it('infinite variant uses the raw single-page queryFn, not the crawling wrapper', async () => {
     let calls = 0;
-    const pageFn = vi.fn(async () => { calls++; return { users: [], nextCursor: null } as PagedUsers; });
+    const pageFn = vi.fn(async () => {
+      calls++;
+      return { users: [], nextCursor: null } as PagedUsers;
+    });
 
     const factory = queryFactory({
       queryKey: ['users'],
@@ -442,23 +516,37 @@ describe('queryFactory – async iterable queryFn', () => {
       queryKey: ['users'],
       queryFn: () => makePages(allPages),
       shouldFetchNextPage: () => true,
-      reduce: (acc: User[] | undefined, p: PagedUsers): User[] => [...(acc ?? []), ...p.users],
+      reduce: (acc: User[] | undefined, p: PagedUsers): User[] => [
+        ...(acc ?? []),
+        ...p.users,
+      ],
     });
 
     const result = await factory(undefined).queryFn!(ctx);
-    expect(result).toEqual([{ id: '1', name: 'Alice' }, { id: '2', name: 'Bob' }]);
+    expect(result).toEqual([
+      { id: '1', name: 'Alice' },
+      { id: '2', name: 'Bob' },
+    ]);
   });
 
   it('stops early when shouldFetchNextPage returns false', async () => {
     async function* infinitePages(): AsyncIterable<PagedUsers> {
       let i = 0;
-      while (true) yield { users: [{ id: String(++i), name: `u${i}` }], nextCursor: `c${i}` };
+      while (true)
+        yield {
+          users: [{ id: String(++i), name: `u${i}` }],
+          nextCursor: `c${i}`,
+        };
     }
     const factory = queryFactory({
       queryKey: ['users'],
       queryFn: () => infinitePages(),
-      shouldFetchNextPage: (users: User[] | undefined) => (users?.length ?? 0) < 2,
-      reduce: (acc: User[] | undefined, p: PagedUsers): User[] => [...(acc ?? []), ...p.users],
+      shouldFetchNextPage: (users: User[] | undefined) =>
+        (users?.length ?? 0) < 2,
+      reduce: (acc: User[] | undefined, p: PagedUsers): User[] => [
+        ...(acc ?? []),
+        ...p.users,
+      ],
     });
 
     const result = await factory(undefined).queryFn!(ctx);
@@ -468,9 +556,13 @@ describe('queryFactory – async iterable queryFn', () => {
   it('getNextPageParam is not required — iterator manages its own cursor', async () => {
     const factory = queryFactory({
       queryKey: ['users'],
-      queryFn: () => makePages([{ users: [{ id: '1', name: 'Alice' }], nextCursor: null }]),
+      queryFn: () =>
+        makePages([{ users: [{ id: '1', name: 'Alice' }], nextCursor: null }]),
       shouldFetchNextPage: () => false,
-      reduce: (acc: User[] | undefined, p: PagedUsers): User[] => [...(acc ?? []), ...p.users],
+      reduce: (acc: User[] | undefined, p: PagedUsers): User[] => [
+        ...(acc ?? []),
+        ...p.users,
+      ],
     });
 
     expect(factory(undefined).queryFn).toBeDefined();
@@ -501,13 +593,20 @@ describe('queryFactory – async iterable queryFn', () => {
 
     const factory = queryFactory({
       queryKey: ['users'],
-      queryFn: () => makePages([{ users: [{ id: '1', name: 'Alice' }], nextCursor: null }]),
+      queryFn: () =>
+        makePages([{ users: [{ id: '1', name: 'Alice' }], nextCursor: null }]),
       shouldFetchNextPage: () => true,
-      reduce: (acc: User[] | undefined, p: PagedUsers): User[] => [...(acc ?? []), ...p.users],
+      reduce: (acc: User[] | undefined, p: PagedUsers): User[] => [
+        ...(acc ?? []),
+        ...p.users,
+      ],
     });
 
     await expect(
-      factory(undefined).queryFn!({ signal: controller.signal, meta: undefined } as any),
+      factory(undefined).queryFn!({
+        signal: controller.signal,
+        meta: undefined,
+      } as any),
     ).rejects.toThrow('Aborted');
   });
 
@@ -516,7 +615,10 @@ describe('queryFactory – async iterable queryFn', () => {
     let count = 0;
     async function* pages(): AsyncIterable<PagedUsers> {
       while (true) {
-        yield { users: [{ id: String(++count), name: `u${count}` }], nextCursor: 'next' };
+        yield {
+          users: [{ id: String(++count), name: `u${count}` }],
+          nextCursor: 'next',
+        };
         if (count === 1) controller.abort();
       }
     }
@@ -524,7 +626,10 @@ describe('queryFactory – async iterable queryFn', () => {
       queryKey: ['users'],
       queryFn: () => pages(),
       shouldFetchNextPage: () => true,
-      reduce: (acc: User[] | undefined, p: PagedUsers): User[] => [...(acc ?? []), ...p.users],
+      reduce: (acc: User[] | undefined, p: PagedUsers): User[] => [
+        ...(acc ?? []),
+        ...p.users,
+      ],
     });
 
     const result = await factory(undefined).queryFn!({
@@ -540,15 +645,23 @@ describe('queryFactory – async iterable queryFn', () => {
       queryKey: ['users'],
       queryFn: (_params, ctx) => {
         startingTokens.push(ctx.pageParam);
-        return makePages([{ users: [{ id: '1', name: 'Alice' }], nextCursor: 'next' }]);
+        return makePages([
+          { users: [{ id: '1', name: 'Alice' }], nextCursor: 'next' },
+        ]);
       },
       getNextPageParam: (p: PagedUsers) => p.nextCursor,
       initialPageParam: null as string | null,
       shouldFetchNextPage: () => false,
-      reduce: (acc: User[] | undefined, p: PagedUsers): User[] => [...(acc ?? []), ...p.users],
+      reduce: (acc: User[] | undefined, p: PagedUsers): User[] => [
+        ...(acc ?? []),
+        ...p.users,
+      ],
     });
 
-    const envelope = await factory.infinite(undefined).queryFn!({ ...ctx, pageParam: 'token-abc' });
+    const envelope = await factory.infinite(undefined).queryFn!({
+      ...ctx,
+      pageParam: 'token-abc',
+    });
     expect(startingTokens[0]).toBe('token-abc');
     expect((envelope as any).data).toEqual([{ id: '1', name: 'Alice' }]);
     expect((envelope as any).nextPageParam).toBe('next');
@@ -567,14 +680,21 @@ describe('queryFactory – composition', () => {
 
   it('inserts params before child segments: [...parentNS, params, ...childSegs]', () => {
     const child = queryFactory(base, { queryKey: ['active'] });
-    expect(child({ filter: 'admin' }).queryKey)
-      .toEqual(['users', { filter: 'admin' }, 'active']);
+    expect(child({ filter: 'admin' }).queryKey).toEqual([
+      'users',
+      { filter: 'admin' },
+      'active',
+    ]);
   });
 
   it('inserts params before child segments on .infinite: [...parentNS, params, ...childSegs, "infinite"]', () => {
     const child = queryFactory(base, { queryKey: ['active'] });
-    expect(child.infinite({ filter: 'admin' }).queryKey)
-      .toEqual(['users', { filter: 'admin' }, 'active', 'infinite']);
+    expect(child.infinite({ filter: 'admin' }).queryKey).toEqual([
+      'users',
+      { filter: 'admin' },
+      'active',
+      'infinite',
+    ]);
   });
 
   it('zero-arg returns just the parent namespace for broad invalidation', () => {
@@ -608,7 +728,10 @@ describe('queryFactory – composition', () => {
     const parentFn = vi.fn(async (_p: { filter: string }) => [] as User[]);
     const childFn = vi.fn(async (p: { filter: string }) => [] as User[]);
     const parent = queryFactory({ queryKey: ['users'], queryFn: parentFn });
-    const child = queryFactory(parent, { queryKey: ['mine'], queryFn: childFn });
+    const child = queryFactory(parent, {
+      queryKey: ['mine'],
+      queryFn: childFn,
+    });
 
     await child({ filter: 'x' }).queryFn!(ctx);
     expect(childFn).toHaveBeenCalled();
@@ -616,7 +739,7 @@ describe('queryFactory – composition', () => {
   });
 
   it('composes select when child adds one without a new queryFn', () => {
-    const parentSelect = (users: User[]) => users.map((u) => u.id);
+    const parentSelect = (users: User[]) => users.map(u => u.id);
     const childSelect = (ids: string[]) => ids.length;
 
     const parent = queryFactory({
@@ -626,12 +749,15 @@ describe('queryFactory – composition', () => {
     });
     const child = queryFactory(parent, { select: childSelect });
 
-    const users: User[] = [{ id: '1', name: 'Alice' }, { id: '2', name: 'Bob' }];
+    const users: User[] = [
+      { id: '1', name: 'Alice' },
+      { id: '2', name: 'Bob' },
+    ];
     expect(child({ filter: 'x' }).select!(users)).toBe(2);
   });
 
   it('does NOT compose select when child provides a new queryFn', () => {
-    const parentSelect = (users: User[]) => users.map((u) => u.id);
+    const parentSelect = (users: User[]) => users.map(u => u.id);
     const childSelect = vi.fn((data: User[]) => data);
 
     const parent = queryFactory({
@@ -649,7 +775,7 @@ describe('queryFactory – composition', () => {
   });
 
   it('inherits parent select when child adds neither queryFn nor select', () => {
-    const parentSelect = (users: User[]) => users.map((u) => u.id);
+    const parentSelect = (users: User[]) => users.map(u => u.id);
     const parent = queryFactory({
       queryKey: ['users'],
       queryFn: async (p: { filter: string }) => [] as User[],
@@ -661,7 +787,7 @@ describe('queryFactory – composition', () => {
   });
 
   it('drops parent select when child provides new queryFn with no select', () => {
-    const parentSelect = (users: User[]) => users.map((u) => u.id);
+    const parentSelect = (users: User[]) => users.map(u => u.id);
     const parent = queryFactory({
       queryKey: ['users'],
       queryFn: async (p: { filter: string }) => [] as User[],
@@ -681,7 +807,10 @@ describe('queryFactory – composition', () => {
       { users: [{ id: '2', name: 'Bob' }], nextCursor: null },
     ];
     const childFn = vi.fn(async (_p: void, _ctx: any) => pages[call++]!);
-    const parent = queryFactory({ queryKey: ['users'], queryFn: async () => [] as User[] });
+    const parent = queryFactory({
+      queryKey: ['users'],
+      queryFn: async () => [] as User[],
+    });
     const child = queryFactory(parent, {
       queryFn: childFn,
       getNextPageParam: p => p.nextCursor,
@@ -694,7 +823,10 @@ describe('queryFactory – composition', () => {
   });
 
   it('child with new queryFn: getNextPageParam without initialPageParam is valid', () => {
-    const parent = queryFactory({ queryKey: ['users'], queryFn: async () => [] as User[] });
+    const parent = queryFactory({
+      queryKey: ['users'],
+      queryFn: async () => [] as User[],
+    });
     queryFactory(parent, {
       queryFn: async () => [] as User[],
       getNextPageParam: () => null,
@@ -705,12 +837,14 @@ describe('queryFactory – composition', () => {
     const gnp = vi.fn() as any;
     const parent = queryFactory({
       queryKey: ['users'],
-      queryFn: async (_p: { filter: string }) => ({ users: [], nextCursor: null }) as PagedUsers,
+      queryFn: async (_p: { filter: string }) =>
+        ({ users: [], nextCursor: null }) as PagedUsers,
       getNextPageParam: gnp,
       initialPageParam: null,
     });
     const child = queryFactory(parent, {
-      queryFn: async (_p: { filter: string }) => ({ users: [], nextCursor: null }) as PagedUsers,
+      queryFn: async (_p: { filter: string }) =>
+        ({ users: [], nextCursor: null }) as PagedUsers,
     });
 
     // getNextPageParam is always set; with no crawling config the fallback returns undefined
@@ -725,7 +859,8 @@ describe('queryFactory – composition', () => {
     const gnp = vi.fn() as any;
     const parent = queryFactory({
       queryKey: ['users'],
-      queryFn: async (_p: { filter: string }) => ({ users: [], nextCursor: null }) as PagedUsers,
+      queryFn: async (_p: { filter: string }) =>
+        ({ users: [], nextCursor: null }) as PagedUsers,
       getNextPageParam: gnp,
       initialPageParam: null,
     });
@@ -738,10 +873,13 @@ describe('queryFactory – composition', () => {
   it('child without queryFn can override shouldFetchNextPage with a different TCrawlOptions', async () => {
     let call = 0;
     const ids = ['u1', 'u2', 'u3'];
-    const pageFn = vi.fn(async () => ({
-      users: [{ id: ids[call] ?? 'u?', name: `user-${call}` }],
-      nextCursor: ++call < ids.length ? `c${call}` : null,
-    } as PagedUsers));
+    const pageFn = vi.fn(
+      async () =>
+        ({
+          users: [{ id: ids[call] ?? 'u?', name: `user-${call}` }],
+          nextCursor: ++call < ids.length ? `c${call}` : null,
+        }) as PagedUsers,
+    );
 
     const parent = queryFactory({
       queryKey: ['users'],
@@ -765,12 +903,21 @@ describe('queryFactory – composition', () => {
   });
 
   it('supports deep composition (grandchild)', () => {
-    const a = queryFactory({ queryKey: ['a'], queryFn: async (p: { x: string }) => [] as User[] });
+    const a = queryFactory({
+      queryKey: ['a'],
+      queryFn: async (p: { x: string }) => [] as User[],
+    });
     const b = queryFactory(a, { queryKey: ['b'] });
     const c = queryFactory(b, { queryKey: ['c'] });
 
     expect(c({ x: '1' }).queryKey).toEqual(['a', 'b', { x: '1' }, 'c']);
-    expect(c.infinite({ x: '1' }).queryKey).toEqual(['a', 'b', { x: '1' }, 'c', 'infinite']);
+    expect(c.infinite({ x: '1' }).queryKey).toEqual([
+      'a',
+      'b',
+      { x: '1' },
+      'c',
+      'infinite',
+    ]);
   });
 });
 
@@ -787,8 +934,14 @@ describe('queryFactory – key isolation', () => {
       initialPageParam: null,
     });
 
-    expect(factory(undefined, { minResults: 30 }).queryKey).toEqual(['users', { minResults: 30 }]);
-    expect(factory(undefined, { minResults: 50 }).queryKey).toEqual(['users', { minResults: 50 }]);
+    expect(factory(undefined, { minResults: 30 }).queryKey).toEqual([
+      'users',
+      { minResults: 30 },
+    ]);
+    expect(factory(undefined, { minResults: 50 }).queryKey).toEqual([
+      'users',
+      { minResults: 50 },
+    ]);
     expect(factory(undefined).queryKey).toEqual(['users']);
   });
 
@@ -800,8 +953,11 @@ describe('queryFactory – key isolation', () => {
       initialPageParam: null,
     });
 
-    expect(factory.infinite(undefined, { minResults: 30 }).queryKey)
-      .toEqual(['users', 'infinite', { minResults: 30 }]);
+    expect(factory.infinite(undefined, { minResults: 30 }).queryKey).toEqual([
+      'users',
+      'infinite',
+      { minResults: 30 },
+    ]);
     expect(factory.infinite(undefined).queryKey).toEqual(['users', 'infinite']);
   });
 
@@ -811,19 +967,27 @@ describe('queryFactory – key isolation', () => {
       queryFn: async () => [] as User[],
     });
 
-    expect(factory(undefined, { minResults: undefined }).queryKey)
-      .toEqual(factory(undefined).queryKey);
-    expect(factory.infinite(undefined, { minResults: undefined }).queryKey)
-      .toEqual(factory.infinite(undefined).queryKey);
+    expect(factory(undefined, { minResults: undefined }).queryKey).toEqual(
+      factory(undefined).queryKey,
+    );
+    expect(
+      factory.infinite(undefined, { minResults: undefined }).queryKey,
+    ).toEqual(factory.infinite(undefined).queryKey);
   });
 });
 
 describe('queryFactory – Record<string, unknown>', () => {
   it('forwards crawl options to shouldFetchNextPage as the second argument', async () => {
-    const sfnp = vi.fn((_combined: User[] | undefined, _opts: Record<string, unknown>) => false);
+    const sfnp = vi.fn(
+      (_combined: User[] | undefined, _opts: Record<string, unknown>) => false,
+    );
     const factory = queryFactory({
       queryKey: ['users'],
-      queryFn: async () => ({ users: [{ id: '1', name: 'Alice' }], nextCursor: 'next' }) as PagedUsers,
+      queryFn: async () =>
+        ({
+          users: [{ id: '1', name: 'Alice' }],
+          nextCursor: 'next',
+        }) as PagedUsers,
       getNextPageParam: p => p.nextCursor,
       reduce: (acc, p): User[] => [...(acc ?? []), ...p.users],
       shouldFetchNextPage: sfnp,
@@ -833,10 +997,7 @@ describe('queryFactory – Record<string, unknown>', () => {
     const crawlOpts = { minResults: 50 };
     await factory(undefined, crawlOpts).queryFn!(ctx);
 
-    expect(sfnp).toHaveBeenCalledWith(
-      [{ id: '1', name: 'Alice' }],
-      crawlOpts,
-    );
+    expect(sfnp).toHaveBeenCalledWith([{ id: '1', name: 'Alice' }], crawlOpts);
   });
 
   it('stops the crawl when ctx.signal is aborted', async () => {
@@ -861,8 +1022,11 @@ describe('queryFactory – Record<string, unknown>', () => {
   });
 
   it('passes lastPage to shouldFetchNextPage on .infinite variant (no reduce)', () => {
-    const sfnp = vi.fn((_combined: PagedUsers | undefined, opts: Record<string, unknown>): boolean =>
-      Object.keys(opts).length === 0,
+    const sfnp = vi.fn(
+      (
+        _combined: PagedUsers | undefined,
+        opts: Record<string, unknown>,
+      ): boolean => Object.keys(opts).length === 0,
     );
     const gnp = vi.fn((): null => null);
     const factory = queryFactory({
@@ -880,17 +1044,26 @@ describe('queryFactory – Record<string, unknown>', () => {
   });
 
   it('applies select before passing to shouldFetchNextPage on .infinite variant (no reduce)', () => {
-    const sfnp = vi.fn((_combined: User[] | undefined, _opts: Record<string, unknown>) => false);
+    const sfnp = vi.fn(
+      (_combined: User[] | undefined, _opts: Record<string, unknown>) => false,
+    );
     const factory = queryFactory({
       queryKey: ['users'],
-      queryFn: async () => ({ users: [{ id: '1', name: 'Alice' }], nextCursor: null }) as PagedUsers,
+      queryFn: async () =>
+        ({
+          users: [{ id: '1', name: 'Alice' }],
+          nextCursor: null,
+        }) as PagedUsers,
       getNextPageParam: p => p.nextCursor,
       select: (p: PagedUsers) => p.users,
       shouldFetchNextPage: sfnp,
       initialPageParam: null as string | null,
     });
 
-    const page: PagedUsers = { users: [{ id: '1', name: 'Alice' }], nextCursor: null };
+    const page: PagedUsers = {
+      users: [{ id: '1', name: 'Alice' }],
+      nextCursor: null,
+    };
     factory.infinite(undefined).getNextPageParam!(page, [page], null, [null]);
 
     expect(sfnp).toHaveBeenCalledWith([{ id: '1', name: 'Alice' }], {});
@@ -920,7 +1093,10 @@ describe('queryFactory – .infinite crawling', () => {
       reduce: (acc, p): User[] => [...(acc ?? []), ...p.users],
     });
 
-    const envelope = await factory.infinite(undefined).queryFn!({ ...ctx, pageParam: null });
+    const envelope = await factory.infinite(undefined).queryFn!({
+      ...ctx,
+      pageParam: null,
+    });
     expect(pageFn).toHaveBeenCalledTimes(3);
     expect((envelope as any).data).toEqual([
       { id: '1', name: 'Alice' },
@@ -946,7 +1122,10 @@ describe('queryFactory – .infinite crawling', () => {
       shouldFetchNextPage: combined => (combined?.length ?? 0) < 1,
     });
 
-    const envelope = await factory.infinite(undefined).queryFn!({ ...ctx, pageParam: null });
+    const envelope = await factory.infinite(undefined).queryFn!({
+      ...ctx,
+      pageParam: null,
+    });
     // crawl stopped after first page (1 user < 1 is false immediately? No: 1 < 1 is false)
     // Wait: after page 1, combined.length = 1, shouldFetchNextPage(1 < 1) = false → stop
     // nextBatchParam = getNextPageParam(page1) = 'c2'
@@ -965,18 +1144,27 @@ describe('queryFactory – .infinite crawling', () => {
 
     const opts = factory.infinite(undefined);
     const envelope = await opts.queryFn!({ ...ctx, pageParam: null });
-    const next = opts.getNextPageParam!(envelope as any, [envelope as any], null, [null]);
+    const next = opts.getNextPageParam!(
+      envelope as any,
+      [envelope as any],
+      null,
+      [null],
+    );
     expect(next).toBe('next');
   });
 
   it('select unwraps the envelope and applies per-page user select', async () => {
     const factory = queryFactory({
       queryKey: ['users'],
-      queryFn: async () => ({ users: [{ id: '1', name: 'Alice' }], nextCursor: null }) as PagedUsers,
+      queryFn: async () =>
+        ({
+          users: [{ id: '1', name: 'Alice' }],
+          nextCursor: null,
+        }) as PagedUsers,
       getNextPageParam: p => p.nextCursor,
       initialPageParam: null as string | null,
       reduce: (acc, p): User[] => [...(acc ?? []), ...p.users],
-      select: ((users: User[]) => users.map((u) => u.name)) as any,
+      select: ((users: User[]) => users.map(u => u.name)) as any,
       shouldFetchNextPage: () => false,
     });
 
@@ -997,10 +1185,13 @@ describe('queryFactory – .infinite crawling', () => {
   it('shouldFetchNextPage controls the size of each virtual page', async () => {
     let call = 0;
     const cursors = ['c2', 'c3', 'c4', 'c5'];
-    const pageFn = vi.fn(async () => ({
-      users: [{ id: String(call), name: 'u' + call }],
-      nextCursor: cursors[call++] ?? null,
-    } as PagedUsers));
+    const pageFn = vi.fn(
+      async () =>
+        ({
+          users: [{ id: String(call), name: 'u' + call }],
+          nextCursor: cursors[call++] ?? null,
+        }) as PagedUsers,
+    );
 
     const factory = queryFactory({
       queryKey: ['users'],
@@ -1013,7 +1204,10 @@ describe('queryFactory – .infinite crawling', () => {
     });
 
     // Two API calls per virtual page (minResults: 2)
-    await factory.infinite(undefined, { minResults: 2 }).queryFn!({ ...ctx, pageParam: null });
+    await factory.infinite(undefined, { minResults: 2 }).queryFn!({
+      ...ctx,
+      pageParam: null,
+    });
     expect(pageFn).toHaveBeenCalledTimes(2);
   });
 
@@ -1023,7 +1217,11 @@ describe('queryFactory – .infinite crawling', () => {
 
     const factory = queryFactory({
       queryKey: ['users'],
-      queryFn: async () => ({ users: [{ id: '1', name: 'Alice' }], nextCursor: null }) as PagedUsers,
+      queryFn: async () =>
+        ({
+          users: [{ id: '1', name: 'Alice' }],
+          nextCursor: null,
+        }) as PagedUsers,
       getNextPageParam: p => p.nextCursor,
       shouldFetchNextPage: () => true,
       initialPageParam: null as string | null,
@@ -1031,7 +1229,11 @@ describe('queryFactory – .infinite crawling', () => {
     });
 
     await expect(
-      factory.infinite(undefined).queryFn!({ signal: controller.signal, meta: undefined, pageParam: null } as any),
+      factory.infinite(undefined).queryFn!({
+        signal: controller.signal,
+        meta: undefined,
+        pageParam: null,
+      } as any),
     ).rejects.toThrow('Aborted');
   });
 
@@ -1042,7 +1244,10 @@ describe('queryFactory – .infinite crawling', () => {
     const factory = queryFactory({
       queryKey: ['users'],
       queryFn: async () => {
-        const page = { users: [{ id: String(call + 1), name: `u${call + 1}` }], nextCursor: 'next' } as PagedUsers;
+        const page = {
+          users: [{ id: String(call + 1), name: `u${call + 1}` }],
+          nextCursor: 'next',
+        } as PagedUsers;
         if (call++ === 0) controller.abort();
         return page;
       },
@@ -1070,7 +1275,10 @@ describe('queryFactory – .infinite crawling', () => {
       reduce: (acc, p): User[] => [...(acc ?? []), ...p.users],
     });
 
-    const envelope = await factory.infinite(undefined).queryFn!({ ...ctx, pageParam: null });
+    const envelope = await factory.infinite(undefined).queryFn!({
+      ...ctx,
+      pageParam: null,
+    });
     expect((envelope as any).data).toEqual([]);
     expect((envelope as any).nextPageParam).toBeNull();
   });
@@ -1081,7 +1289,10 @@ describe('queryFactory – .infinite crawling', () => {
       queryKey: ['users'],
       queryFn: async () => {
         if (call++ === 1) throw new Error('page 2 failed');
-        return { users: [{ id: '1', name: 'Alice' }], nextCursor: 'p2' } as PagedUsers;
+        return {
+          users: [{ id: '1', name: 'Alice' }],
+          nextCursor: 'p2',
+        } as PagedUsers;
       },
       getNextPageParam: p => p.nextCursor,
       shouldFetchNextPage: () => true,
@@ -1110,10 +1321,13 @@ describe('queryFactory – .infinite crawling', () => {
   });
 
   it('starts the second virtual page from the next batch param', async () => {
-    const pageFn = vi.fn(async (_p: void, ctx: any) => ({
-      users: [{ id: ctx.pageParam ?? 'start', name: 'u' }],
-      nextCursor: ctx.pageParam === 'c2' ? null : 'c2',
-    } as PagedUsers));
+    const pageFn = vi.fn(
+      async (_p: void, ctx: any) =>
+        ({
+          users: [{ id: ctx.pageParam ?? 'start', name: 'u' }],
+          nextCursor: ctx.pageParam === 'c2' ? null : 'c2',
+        }) as PagedUsers,
+    );
 
     const factory = queryFactory({
       queryKey: ['users'],
@@ -1148,7 +1362,9 @@ describe('queryFactory – types', () => {
   it('ResolvedQueryOptions is not assignable to UseInfiniteQueryOptions', () => {
     // initialPageParam?: never makes the type structurally incompatible with
     // UseInfiniteQueryOptions which requires initialPageParam: TPageParam.
-    expectTypeOf<ResolvedQueryOptions<SomeUser[], Error, SomeUser[]>>().not.toMatchTypeOf<
+    expectTypeOf<
+      ResolvedQueryOptions<SomeUser[], Error, SomeUser[]>
+    >().not.toMatchTypeOf<
       UseInfiniteQueryOptions<SomeUser[], Error, SomeUser[], QueryKey, Cursor>
     >();
   });
@@ -1157,7 +1373,9 @@ describe('queryFactory – types', () => {
     // select: (data: InfiniteData<TData, TPageParam>) => any is contravariant:
     // UseQueryOptions expects select: (data: TData) => TSelected, and TData is
     // not assignable to InfiniteData<TData, TPageParam>.
-    expectTypeOf<ResolvedInfiniteOptions<SomeUser[], Error, Cursor>>().not.toMatchTypeOf<
+    expectTypeOf<
+      ResolvedInfiniteOptions<SomeUser[], Error, Cursor>
+    >().not.toMatchTypeOf<
       UseQueryOptions<SomeUser[], Error, SomeUser[], QueryKey>
     >();
   });
@@ -1170,9 +1388,11 @@ describe('queryFactory – types', () => {
     });
     const child = queryFactory(parent, {
       queryFn: async () => [] as AdminUser[],
-      select: (data) => data,
+      select: data => data,
     });
-    expectTypeOf(child(undefined).select!).parameter(0).toEqualTypeOf<AdminUser[]>();
+    expectTypeOf(child(undefined).select!)
+      .parameter(0)
+      .toEqualTypeOf<AdminUser[]>();
   });
 
   it('context.pageParam is typed as the page param type when initialPageParam is provided', () => {
@@ -1212,11 +1432,12 @@ describe('queryFactory – types', () => {
   it('shouldFetchNextPage combined param is TSelected (not | undefined) when reduce is present', () => {
     queryFactory({
       queryKey: ['users'],
-      queryFn: (_params: void) => ({ users: [], nextCursor: null }) as PagedUsers,
+      queryFn: (_params: void) =>
+        ({ users: [], nextCursor: null }) as PagedUsers,
       getNextPageParam: p => p.nextCursor,
       initialPageParam: null as Cursor,
       reduce: (_acc, page): SomeUser[] => page.users,
-      shouldFetchNextPage: (combined) => {
+      shouldFetchNextPage: combined => {
         expectTypeOf(combined).toEqualTypeOf<SomeUser[]>();
         return combined.length < 10;
       },
@@ -1226,10 +1447,11 @@ describe('queryFactory – types', () => {
   it('shouldFetchNextPage combined param is TSelected | undefined when reduce is absent', () => {
     queryFactory({
       queryKey: ['users'],
-      queryFn: (_params: void) => ({ users: [], nextCursor: null }) as PagedUsers,
+      queryFn: (_params: void) =>
+        ({ users: [], nextCursor: null }) as PagedUsers,
       getNextPageParam: p => p.nextCursor,
       initialPageParam: null as Cursor,
-      shouldFetchNextPage: (combined) => {
+      shouldFetchNextPage: combined => {
         expectTypeOf(combined).toEqualTypeOf<PagedUsers | undefined>();
         return true;
       },
@@ -1239,13 +1461,14 @@ describe('queryFactory – types', () => {
   it('shouldFetchNextPage combined param on a child factory is typed (not any)', () => {
     const parent = queryFactory({
       queryKey: ['users'],
-      queryFn: (_params: void) => ({ users: [], nextCursor: null }) as PagedUsers,
+      queryFn: (_params: void) =>
+        ({ users: [], nextCursor: null }) as PagedUsers,
       getNextPageParam: p => p.nextCursor,
       initialPageParam: null as Cursor,
       reduce: (_acc, page): SomeUser[] => page.users,
     });
     queryFactory(parent, {
-      shouldFetchNextPage: (combined) => {
+      shouldFetchNextPage: combined => {
         expectTypeOf(combined).not.toBeAny();
         // parent has reduce → combined is TChildSelected, not | undefined
         expectTypeOf(combined).toEqualTypeOf<SomeUser[]>();
@@ -1271,19 +1494,21 @@ describe('queryFactory – types', () => {
 
     type Opts = ReturnType<typeof factory.infinite>;
     type SelectReturn = ReturnType<NonNullable<Opts['select']>>;
-    expectTypeOf<SelectReturn>().toEqualTypeOf<InfiniteData<SomeUser[], null>>();
+    expectTypeOf<SelectReturn>().toEqualTypeOf<
+      InfiniteData<SomeUser[], null>
+    >();
   });
 
   it('StandardQueryOptions fields are accepted on factory config', () => {
     queryFactory({
       queryKey: ['users'],
       queryFn: (_params: void) => [] as SomeUser[],
-      enabled: (query) => query.queryKey.length > 0,
-      staleTime: (query) => (query.state.data ? Infinity : 0),
+      enabled: query => query.queryKey.length > 0,
+      staleTime: query => (query.state.data ? Infinity : 0),
       retryOnMount: false,
       initialData: [] as SomeUser[],
       placeholderData: [] as SomeUser[],
-      queryKeyHashFn: (key) => JSON.stringify(key),
+      queryKeyHashFn: key => JSON.stringify(key),
       structuralSharing: (oldData, newData) => newData ?? oldData,
       experimental_prefetchInRender: false,
     });

@@ -3,25 +3,34 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useCollection } from '@cloudscape-design/collection-hooks';
 import type { Instance } from '../aws-sdk-mock.js';
 import { StopInstancesCommand } from '../aws-sdk-mock.js';
-import { ec2, describeInstances, runningInstances, stoppedInstances } from '../queries.js';
+import {
+  ec2,
+  describeInstances,
+  runningInstances,
+  stoppedInstances,
+} from '../queries.js';
 import { queryClient } from '../queryClient.js';
 import pageSource from './CompositionPage.tsx?raw';
 import {
-	Box,
-	Button,
-	ColumnLayout,
-	CollectionPreferences,
-	Container,
-	ExpandableSection,
-	Header,
-	Pagination,
-	SpaceBetween,
-	Spinner,
-	Table,
-	TextContent,
-	TextFilter,
+  Box,
+  Button,
+  ColumnLayout,
+  CollectionPreferences,
+  Container,
+  ExpandableSection,
+  Header,
+  Pagination,
+  SpaceBetween,
+  Spinner,
+  Table,
+  TextContent,
+  TextFilter,
 } from '@cloudscape-design/components';
-import { CodeBlock, INSTANCE_COLUMN_DEFS, PAGE_SIZE_OPTIONS } from '../shared.js';
+import {
+  CodeBlock,
+  INSTANCE_COLUMN_DEFS,
+  PAGE_SIZE_OPTIONS,
+} from '../shared.js';
 import { useNotifications } from '../notifications.js';
 
 export const handle = { label: 'Composition', source: pageSource };
@@ -45,127 +54,148 @@ const { data: stopped } = useQuery(stoppedInstances({ MaxResults: 20 }));
 queryClient.invalidateQueries(describeInstances())`;
 
 export async function loader() {
-	await queryClient.prefetchQuery(describeInstances({ MaxResults: 20 }));
-	return null;
+  await queryClient.prefetchQuery(describeInstances({ MaxResults: 20 }));
+  return null;
 }
 
 function Stat({ label, value }: { label: string; value: number | undefined }) {
-	return (
-		<div>
-			<Box variant="awsui-key-label">{label}</Box>
-			<Box variant="h1">{value ?? <Spinner />}</Box>
-		</div>
-	);
+  return (
+    <div>
+      <Box variant="awsui-key-label">{label}</Box>
+      <Box variant="h1">{value ?? <Spinner />}</Box>
+    </div>
+  );
 }
 
 function CompositionPage() {
-	const queryClient = useQueryClient();
-	const { addNotification } = useNotifications();
-	const [stoppingIds, setStoppingIds] = useState<Set<string>>(new Set());
-	const [preferences, setPreferences] = useState({ pageSize: 20 });
+  const queryClient = useQueryClient();
+  const { addNotification } = useNotifications();
+  const [stoppingIds, setStoppingIds] = useState<Set<string>>(new Set());
+  const [preferences, setPreferences] = useState({ pageSize: 20 });
 
-	const { data: all, isLoading, isFetching } = useQuery(describeInstances({ MaxResults: 20 }));
-	const { data: running } = useQuery(runningInstances({ MaxResults: 20 }));
-	const { data: stopped } = useQuery(stoppedInstances({ MaxResults: 20 }));
+  const {
+    data: all,
+    isLoading,
+    isFetching,
+  } = useQuery(describeInstances({ MaxResults: 20 }));
+  const { data: running } = useQuery(runningInstances({ MaxResults: 20 }));
+  const { data: stopped } = useQuery(stoppedInstances({ MaxResults: 20 }));
 
-	const { mutate: stopInstance } = useMutation({
-		mutationFn: (instanceId: string) =>
-			ec2.send(new StopInstancesCommand({ InstanceIds: [instanceId] })),
-		onSuccess: (_result, instanceId) => {
-			setStoppingIds(prev => {
-				const s = new Set(prev);
-				s.delete(instanceId);
-				return s;
-			});
-			addNotification({ id: instanceId, type: 'success', content: `Instance ${instanceId} stopped successfully.` });
-			void queryClient.invalidateQueries(describeInstances());
-		},
-	});
+  const { mutate: stopInstance } = useMutation({
+    mutationFn: (instanceId: string) =>
+      ec2.send(new StopInstancesCommand({ InstanceIds: [instanceId] })),
+    onSuccess: (_result, instanceId) => {
+      setStoppingIds(prev => {
+        const s = new Set(prev);
+        s.delete(instanceId);
+        return s;
+      });
+      addNotification({
+        id: instanceId,
+        type: 'success',
+        content: `Instance ${instanceId} stopped successfully.`,
+      });
+      void queryClient.invalidateQueries(describeInstances());
+    },
+  });
 
-	const { items, filterProps, paginationProps, collectionProps } = useCollection(all ?? [], {
-		filtering: {},
-		pagination: { pageSize: preferences.pageSize },
-		sorting: {},
-	});
+  const { items, filterProps, paginationProps, collectionProps } =
+    useCollection(all ?? [], {
+      filtering: {},
+      pagination: { pageSize: preferences.pageSize },
+      sorting: {},
+    });
 
-	const stopColumnDef = {
-		id: 'stop',
-		header: '',
-		cell: (inst: Instance) =>
-			inst.State.Name === 'running' ? (
-				<Button
-					variant="inline-link"
-					onClick={() => {
-						setStoppingIds(prev => new Set(prev).add(inst.InstanceId));
-						stopInstance(inst.InstanceId);
-					}}
-					loading={stoppingIds.has(inst.InstanceId)}
-					disabled={stoppingIds.has(inst.InstanceId)}
-				>
-					Stop
-				</Button>
-			) : null,
-	};
+  const stopColumnDef = {
+    id: 'stop',
+    header: '',
+    cell: (inst: Instance) =>
+      inst.State.Name === 'running' ? (
+        <Button
+          variant="inline-link"
+          onClick={() => {
+            setStoppingIds(prev => new Set(prev).add(inst.InstanceId));
+            stopInstance(inst.InstanceId);
+          }}
+          loading={stoppingIds.has(inst.InstanceId)}
+          disabled={stoppingIds.has(inst.InstanceId)}
+        >
+          Stop
+        </Button>
+      ) : null,
+  };
 
-	return (
-		<SpaceBetween size="m">
-			<TextContent>
-				<p>
-					A common dashboard pattern requires multiple views of the same underlying data: a total
-					count, a running count, a stopped count — all from the same API. Without this library
-					you either make redundant API calls for each view, or manually thread a single response
-					through multiple pieces of state. Child factories solve this by inheriting the parent's{' '}
-					<code>queryFn</code>, pagination, and <code>reduce</code> config while applying a{' '}
-					<code>select</code> transform on the accumulated result. Crucially, all child factories
-					share the same underlying cache entry as the parent — one API crawl populates every
-					derived view. When the parent is invalidated, all children re-fetch together.
-					The UX consequence is a dashboard that stays in sync automatically: stopping an instance
-					updates the summary counts and the table in a single re-fetch, with no extra
-					coordination.
-				</p>
-			</TextContent>
-			<ExpandableSection headerText="Factory code" variant="container">
-				<CodeBlock code={FACTORY_CODE} />
-			</ExpandableSection>
-			<Container header={<Header variant="h2">Instance summary</Header>}>
-				<ColumnLayout columns={3} variant="text-grid">
-					<Stat label="Total" value={all?.length} />
-					<Stat label="Running" value={running?.length} />
-					<Stat label="Stopped" value={stopped?.length} />
-				</ColumnLayout>
-			</Container>
-			<Table
-				stripedRows
-				{...collectionProps}
-				loading={isLoading}
-				items={items}
-				columnDefinitions={[...INSTANCE_COLUMN_DEFS, stopColumnDef]}
-				filter={<TextFilter {...filterProps} filteringPlaceholder="Search instances…" />}
-				pagination={<Pagination {...paginationProps} />}
-				preferences={
-					<CollectionPreferences
-						title="Preferences"
-						confirmLabel="Confirm"
-						cancelLabel="Cancel"
-						preferences={preferences}
-						onConfirm={({ detail }) => setPreferences(detail as typeof preferences)}
-						pageSizePreference={{ title: 'Page size', options: PAGE_SIZE_OPTIONS }}
-					/>
-				}
-				header={
-					<Header
-						variant="h2"
-						counter={all ? `(${all.length})` : undefined}
-						description="Stop an instance — the summary counts above update automatically."
-						actions={isFetching && !isLoading ? <Spinner /> : undefined}
-					>
-						All instances
-					</Header>
-				}
-				trackBy="InstanceId"
-			/>
-		</SpaceBetween>
-	);
+  return (
+    <SpaceBetween size="m">
+      <TextContent>
+        <p>
+          A common dashboard pattern requires multiple views of the same
+          underlying data: a total count, a running count, a stopped count — all
+          from the same API. Without this library you either make redundant API
+          calls for each view, or manually thread a single response through
+          multiple pieces of state. Child factories solve this by inheriting the
+          parent's <code>queryFn</code>, pagination, and <code>reduce</code>{' '}
+          config while applying a <code>select</code> transform on the
+          accumulated result. Crucially, all child factories share the same
+          underlying cache entry as the parent — one API crawl populates every
+          derived view. When the parent is invalidated, all children re-fetch
+          together. The UX consequence is a dashboard that stays in sync
+          automatically: stopping an instance updates the summary counts and the
+          table in a single re-fetch, with no extra coordination.
+        </p>
+      </TextContent>
+      <ExpandableSection headerText="Factory code" variant="container">
+        <CodeBlock code={FACTORY_CODE} />
+      </ExpandableSection>
+      <Container header={<Header variant="h2">Instance summary</Header>}>
+        <ColumnLayout columns={3} variant="text-grid">
+          <Stat label="Total" value={all?.length} />
+          <Stat label="Running" value={running?.length} />
+          <Stat label="Stopped" value={stopped?.length} />
+        </ColumnLayout>
+      </Container>
+      <Table
+        stripedRows
+        {...collectionProps}
+        loading={isLoading}
+        items={items}
+        columnDefinitions={[...INSTANCE_COLUMN_DEFS, stopColumnDef]}
+        filter={
+          <TextFilter
+            {...filterProps}
+            filteringPlaceholder="Search instances…"
+          />
+        }
+        pagination={<Pagination {...paginationProps} />}
+        preferences={
+          <CollectionPreferences
+            title="Preferences"
+            confirmLabel="Confirm"
+            cancelLabel="Cancel"
+            preferences={preferences}
+            onConfirm={({ detail }) =>
+              setPreferences(detail as typeof preferences)
+            }
+            pageSizePreference={{
+              title: 'Page size',
+              options: PAGE_SIZE_OPTIONS,
+            }}
+          />
+        }
+        header={
+          <Header
+            variant="h2"
+            counter={all ? `(${all.length})` : undefined}
+            description="Stop an instance — the summary counts above update automatically."
+            actions={isFetching && !isLoading ? <Spinner /> : undefined}
+          >
+            All instances
+          </Header>
+        }
+        trackBy="InstanceId"
+      />
+    </SpaceBetween>
+  );
 }
 
 export { CompositionPage as Component };

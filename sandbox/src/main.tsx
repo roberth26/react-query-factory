@@ -17,7 +17,9 @@ createRoot(document.getElementById('root')!).render(
       <NotificationProvider>
         <RouterProvider router={router} />
       </NotificationProvider>
-      <ReactQueryDevtools initialIsOpen={false} theme="dark" />
+      <div style={{ position: 'fixed', bottom: 0, zIndex: 9999 }}>
+        <ReactQueryDevtools initialIsOpen={false} theme="dark" />
+      </div>
     </QueryClientProvider>
   </StrictMode>,
 );

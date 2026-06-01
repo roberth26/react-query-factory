@@ -9,9 +9,186 @@
   <a href="https://roberth26.github.io/react-query-factory/"><strong>Visit the Sandbox</strong></a>
 </p>
 
-A factory function for TanStack Query configs. Instead of calling `useQuery` with ad-hoc options, you define a factory once and call it anywhere — getting consistent cache keys, automatic pagination crawling, and `useInfiniteQuery` support for free. TanStack's API stays fully exposed.
+TanStack Query handles caching, syncing, and invalidation. What it doesn't do is crawl paginated APIs for you. This library adds that — a factory function that wraps your `queryFn` with a configurable crawl loop so `useQuery` can return accumulated results instead of a single page. The same factory produces `useInfiniteQuery` options, composes into child factories that share the cache, and exposes scope-aware invalidation keys. TanStack's API stays fully exposed at every call site.
 
-Zero runtime dependencies — all TanStack imports are type-only and erased at compile time.
+Zero runtime dependencies.
+
+---
+
+## The problem
+
+### Step 1 — wrap `useQuery` in a custom hook
+
+The first instinct when a query is reused across components:
+
+```typescript
+function useInstances(params: DescribeInstancesCommandInput) {
+  return useQuery({
+    queryKey: ['instances', params],
+    queryFn: () => fetchInstances(params),
+  });
+}
+```
+
+Works, but the key only exists inside the hook. Prefetching in a route loader, invalidating after a mutation, or fetching imperatively all require knowing `['instances', params]` without calling the hook.
+
+### Step 2 — `queryOptions` for colocation
+
+TanStack's `queryOptions` helper moves the key and fn into a shared object:
+
+```typescript
+const instancesOptions = (params: DescribeInstancesCommandInput) =>
+  queryOptions({
+    queryKey: ['instances', params],
+    queryFn: () => fetchInstances(params),
+  });
+
+useQuery(instancesOptions(params));
+queryClient.prefetchQuery(instancesOptions(params));
+queryClient.invalidateQueries(instancesOptions(params));
+```
+
+This is genuinely good — this library builds on the same pattern. But once you need multiple related queries, the cracks show.
+
+### Step 3 — derived queries and key coordination
+
+Say you want a running-instances view that shares the same cache entry as the full list. The natural move is to spread the base options and override `select`:
+
+```typescript
+const { data: running } = useQuery({
+  ...instancesOptions(params),
+  select: data => data.filter(i => i.state === 'running'),
+});
+```
+
+No key or `queryFn` duplication — this is the right approach. But `select` can only be applied at the call site, not captured in `instancesOptions` itself. And after a mutation you still need a magic string to bust the cache:
+
+```typescript
+// If the key structure ever changes, every site breaks.
+queryClient.invalidateQueries({ queryKey: ['instances'] });
+```
+
+### Step 4 — paginated APIs
+
+`DescribeInstances` returns at most `MaxResults` instances per call. To get them all, you need to loop. The usual options:
+
+**Put the loop in `queryFn`:**
+
+```typescript
+const instancesOptions = params =>
+  queryOptions({
+    queryKey: ['instances', params],
+    queryFn: async () => {
+      let all: Instance[] = [];
+      let nextToken: string | undefined;
+      do {
+        const page = await ec2.send(
+          new DescribeInstancesCommand({ ...params, NextToken: nextToken }),
+        );
+        all = [
+          ...all,
+          ...(page.Reservations?.flatMap(r => r.Instances ?? []) ?? []),
+        ];
+        nextToken = page.NextToken;
+      } while (nextToken);
+      return all;
+    },
+  });
+```
+
+The crawl logic is now baked in. Every call site gets all pages — you can't stop at 50 for a dropdown while fetching all for a table. The loop gets copy-pasted into every paginated query.
+
+**Use `useInfiniteQuery`:**
+
+```typescript
+const instancesInfiniteOptions = params =>
+  infiniteQueryOptions({
+    queryKey: ['instances', 'infinite', params],
+    queryFn: ({ pageParam }) =>
+      ec2.send(
+        new DescribeInstancesCommand({ ...params, NextToken: pageParam }),
+      ),
+    getNextPageParam: r => r.NextToken,
+    initialPageParam: undefined,
+  });
+
+// Caller still has to flatten, auto-advance, manage hasNextPage...
+const { data, fetchNextPage, hasNextPage } = useInfiniteQuery(
+  instancesInfiniteOptions(params),
+);
+const allInstances = data?.pages.flatMap(
+  page => page.Reservations?.flatMap(r => r.Instances ?? []) ?? [],
+);
+```
+
+Now you have two separate factories that duplicate the key and queryFn and need to stay in sync. `useQuery` and `useInfiniteQuery` are separate cache entries. Derived queries, invalidation, and prefetching all have to be wired up independently for each.
+
+### What's missing
+
+- Define the query **once**: key, queryFn, pagination config
+- Let each **call site** decide how much to crawl (e.g. 50 records or all of them)
+- Optionally have `useQuery` crawl and return the **accumulated result** instead of a single page
+- Use **async iterables** as `queryFn` — pass a paginator function directly, no cursor wiring required
+- Have `.infinite()` available on the **same factory**, no duplication
+- Have derived queries **share the cache entry** automatically
+- Have **scoped invalidation** through key composition — bust the whole namespace or just one param set and its children
+
+---
+
+## The solution
+
+```typescript
+import { queryFactory } from '@robohall/react-query-factory';
+
+const describeInstances = queryFactory({
+  queryKey: ['ec2:DescribeInstances'],
+  queryFn: (params: DescribeInstancesCommandInput, ctx) =>
+    ec2.send(
+      new DescribeInstancesCommand({ ...params, NextToken: ctx.pageParam }),
+      {
+        abortSignal: ctx.signal,
+      },
+    ),
+  getNextPageParam: r => r.NextToken,
+  initialPageParam: undefined as string | undefined,
+  reduce: (acc, page): Instance[] => [
+    ...(acc ?? []),
+    ...(page.Reservations?.flatMap(r => r.Instances ?? []) ?? []),
+  ],
+  shouldFetchNextPage: (instances, opts: { minResults?: number }) =>
+    opts.minResults == null || instances.length < opts.minResults,
+});
+
+// useQuery — crawls all pages, data is Instance[]
+const { data } = useQuery(describeInstances({ MaxResults: 20 }));
+
+// Stop at 50 — separate cache entry, independent crawl
+const { data } = useQuery(
+  describeInstances({ MaxResults: 20 }, { minResults: 50 }),
+);
+
+// UI-driven pagination — same factory, no duplication
+const { data, fetchNextPage } = useInfiniteQuery(
+  describeInstances.infinite({ MaxResults: 20 }, { minResults: 50 }),
+);
+
+// Derived view — shares the cache entry, no extra API call
+const runningInstances = queryFactory(describeInstances, {
+  select: instances => instances.filter(i => i.State?.Name === 'running'),
+});
+const { data: running } = useQuery(runningInstances({ MaxResults: 20 }));
+
+// Prefetch in a route loader
+await queryClient.prefetchQuery(describeInstances({ MaxResults: 20 }));
+
+// Bust everything in the namespace
+queryClient.invalidateQueries(describeInstances());
+
+// Bust only this param set — cascades to runningInstances and any other child
+queryClient.invalidateQueries(describeInstances({ MaxResults: 20 }));
+```
+
+`describeInstances({ ... })` returns a plain `{ queryKey, queryFn, ... }` object — pass it directly to `useQuery`, `useInfiniteQuery`, `prefetchQuery`, or `getQueryData`. The factory doesn't touch your query client.
 
 ---
 
@@ -24,90 +201,25 @@ npm install @robohall/react-query-factory
 
 ---
 
-## Quick start
-
-Define a factory once, call it in any component:
-
-```typescript
-import {
-  EC2Client,
-  DescribeInstancesCommand,
-  type DescribeInstancesCommandInput,
-} from '@aws-sdk/client-ec2';
-import { queryFactory } from '@robohall/react-query-factory';
-import { useQuery } from '@tanstack/react-query';
-
-const ec2 = new EC2Client({ region: 'us-east-1' });
-
-const describeInstances = queryFactory({
-  queryKey: ['ec2:DescribeInstances'],
-  queryFn: (params: DescribeInstancesCommandInput, ctx) =>
-    ec2.send(new DescribeInstancesCommand(params), { abortSignal: ctx.signal }),
-});
-
-function InstanceList() {
-  const { data } = useQuery(
-    describeInstances({ Filters: [{ Name: 'instance-state-name', Values: ['running'] }] })
-  );
-  // query key:  ['ec2:DescribeInstances', { Filters: [...] }]
-}
-```
-
-`describeInstances({ ... })` returns a plain object — `{ queryKey, queryFn, staleTime, … }` — that you spread or pass directly to `useQuery`. The factory does not touch your query client.
-
----
-
 ## Crawling
 
-`DescribeInstances` is paginated. If you have more than 20 instances, one call won't get them all. The standard approach — chaining `fetchNextPage` calls, accumulating results, checking `NextToken` — is correct but tedious to repeat everywhere.
+`shouldFetchNextPage` is called after each page — return `true` to keep fetching, `false` to stop. `getNextPageParam` and `initialPageParam` follow the exact TanStack API. `reduce` folds pages into a single accumulated value; without it the result is an array of raw pages (`TData[]`).
 
-Add `getNextPageParam` and `shouldFetchNextPage` to activate crawling — those two are the only required pieces. `initialPageParam` types `ctx.pageParam` in your `queryFn` (without it and without a `getNextPageParam` that provides inference, `ctx.pageParam` is `never`). `reduce` folds crawled pages into a single value; without it the result is an array of all fetched raw pages (`TData[]`). **`shouldFetchNextPage`** is called after each page — return `true` to keep fetching, `false` to stop. Use `() => true` to walk every page:
-
-```typescript
-import type { Instance, DescribeInstancesCommandInput } from '@aws-sdk/client-ec2';
-
-const describeInstances = queryFactory({
-  queryKey: ['ec2:DescribeInstances'],
-  queryFn: (params: DescribeInstancesCommandInput, ctx) =>
-    ec2.send(
-      new DescribeInstancesCommand({ ...params, NextToken: ctx.pageParam }),
-      { abortSignal: ctx.signal },
-    ),
-  getNextPageParam: response => response.NextToken,
-  initialPageParam: undefined as string | undefined,
-  shouldFetchNextPage: () => true,
-  reduce: (acc, page): Instance[] => [
-    ...(acc ?? []),
-    ...(page.Reservations?.flatMap(r => r.Instances ?? []) ?? []),
-  ],
-});
-
-function InstanceList() {
-  // one useQuery call; data is Instance[], not DescribeInstancesResponse[]
-  const { data } = useQuery(describeInstances({ MaxResults: 20 }));
-}
-```
-
-`shouldFetchNextPage` also accepts a `crawlOptions` object passed at call time, letting each call site control the crawl independently:
+The `crawlOptions` argument passed at call time is forwarded to `shouldFetchNextPage` and appended to the query key, so different call sites crawl independently and never share a cache entry:
 
 ```typescript
 const describeInstances = queryFactory({
   // ...
-  reduce: (acc, page): Instance[] => [...(acc ?? []), ...page.Reservations.flatMap(r => r.Instances)],
   shouldFetchNextPage: (instances, opts: { minResults?: number }) =>
     opts.minResults == null || instances.length < opts.minResults,
 });
 
-// fetch all pages
+// two separate cache entries — crawl independently
 const { data: all } = useQuery(describeInstances({ MaxResults: 20 }));
-
-// stop after accumulating at least 50 instances (≥ 3 API calls)
 const { data: partial } = useQuery(
-  describeInstances({ MaxResults: 20 }, { minResults: 50 })
+  describeInstances({ MaxResults: 20 }, { minResults: 50 }),
 );
 ```
-
-`crawlOptions` is appended to the query key, so `describeInstances({}, { minResults: 50 })` and `describeInstances({}, { minResults: 200 })` are separate cache entries — they crawl independently and never collide.
 
 ---
 
@@ -124,7 +236,7 @@ const describeInstances = queryFactory({
     paginateDescribeInstances({ client: ec2 }, params),
   shouldFetchNextPage: (instances, opts: { minResults?: number }) =>
     opts.minResults == null || instances.length < opts.minResults,
-  reduce: (acc, page): Instance[] => [
+  reduce: (acc, page: DescribeInstancesResponse): Instance[] => [
     ...(acc ?? []),
     ...(page.Reservations?.flatMap(r => r.Instances ?? []) ?? []),
   ],
@@ -139,12 +251,18 @@ For `.infinite()` mode, `getNextPageParam` is required to capture the next virtu
 const describeInstances = queryFactory({
   queryKey: ['ec2:DescribeInstances'],
   queryFn: (params: DescribeInstancesCommandInput, ctx) =>
-    paginateDescribeInstances({ client: ec2 }, { ...params, StartingToken: ctx.pageParam }),
+    paginateDescribeInstances(
+      { client: ec2 },
+      { ...params, StartingToken: ctx.pageParam },
+    ),
   getNextPageParam: page => page.NextToken,
   initialPageParam: undefined as string | undefined,
   shouldFetchNextPage: (instances, opts: { minResults?: number }) =>
     opts.minResults == null || instances.length < opts.minResults,
-  reduce: (acc, page): Instance[] => [...(acc ?? []), ...(page.Instances ?? [])],
+  reduce: (acc, page): Instance[] => [
+    ...(acc ?? []),
+    ...(page.Instances ?? []),
+  ],
 });
 
 const { data, fetchNextPage } = useInfiniteQuery(
@@ -186,7 +304,7 @@ const findInstance = queryFactory(describeInstances, {
 // query key: ['ec2:DescribeInstances', { MaxResults: 20 }, 'find', { instanceId: 'i-0abc123def456' }]
 // crawls pages until the target instance appears, then stops
 const { data } = useQuery(
-  findInstance({ MaxResults: 20 }, { instanceId: 'i-0abc123def456' })
+  findInstance({ MaxResults: 20 }, { instanceId: 'i-0abc123def456' }),
 );
 ```
 
@@ -227,17 +345,16 @@ Every factory exposes a `.infinite()` method that returns `useInfiniteQuery`-com
 ```typescript
 const { data, fetchNextPage, hasNextPage } = useInfiniteQuery(
   // load 50 instances per UI page, each backed by up to 5 DescribeInstances calls
-  describeInstances.infinite({ MaxResults: 20 }, { minResults: 50 })
+  describeInstances.infinite({ MaxResults: 20 }, { minResults: 50 }),
 );
 
 // data.pages is Instance[][], one array per virtual page
 ```
 
 The `.infinite()` key includes an `'infinite'` segment to keep it separate from the regular `useQuery` cache entry:
+
 - `describeInstances({ MaxResults: 20 })` → `['ec2:DescribeInstances', { MaxResults: 20 }]`
 - `describeInstances.infinite({ MaxResults: 20 })` → `['ec2:DescribeInstances', 'infinite', { MaxResults: 20 }]`
-
-Child factories place `params` before their own key segments so that the parent key is always a prefix of the child key for the same params — enabling per-call-site scoped invalidation.
 
 ---
 
@@ -256,6 +373,7 @@ queryFactory<TParams, TData, TError, TSelected, TPageParam, TCrawlOptions>(
 ### `queryFactory(parent, config)`
 
 Creates a child factory. Two overloads:
+
 - **With a new `queryFn`** — inherits key namespace and standard options; crawling config must be re-declared if needed.
 - **Without a `queryFn`** — inherits everything; accepts `queryKey`, `select`, standard options, and any crawling fields (`shouldFetchNextPage`, `reduce`, `getNextPageParam`, `getPreviousPageParam`, `initialPageParam`) to override the parent's. `select` is composed with the parent's.
 
@@ -263,17 +381,17 @@ Creates a child factory. Two overloads:
 
 All fields except `reduce` and `shouldFetchNextPage` are the standard TanStack Query API — the same types and semantics you'd pass to `useQuery` or `useInfiniteQuery`. The factory doesn't reinvent them; it just requires certain combinations to be present in order to activate crawling.
 
-| Field | Type | Notes |
-|---|---|---|
-| `queryKey` | `QueryKey` | Namespace segments. Params are appended at call time. |
-| `queryFn` | `(params: TParams, ctx: QueryFunctionContext) => TData \| Promise<TData>` | Same as TanStack, with an extra leading `params` argument. |
-| `select` | `(data: TData) => TSelected` | Exact TanStack API. Composed automatically on child factories. |
-| `getNextPageParam` | `GetNextPageParamFunction<TPageParam, TData>` | Exact TanStack API. Required (with `shouldFetchNextPage`) to activate crawling. Required (with `initialPageParam`) for `.infinite()`. |
-| `initialPageParam` | `TPageParam` | Exact TanStack API. Drives `TPageParam` inference — without it and without a `getNextPageParam` that provides inference, `ctx.pageParam` is typed `never`. Required for `.infinite()` to work at runtime. |
-| `getPreviousPageParam` | `GetPreviousPageParamFunction<TPageParam, TData>` | Exact TanStack API. Passed through on `.infinite()`. |
-| `shouldFetchNextPage` | `(combined: TSelected \| undefined, crawlOptions: TCrawlOptions) => boolean` | Library addition. **Required (with `getNextPageParam`) to activate crawling.** Called after each page — return `true` to keep fetching, `false` to stop. |
-| `reduce` | `(acc: TSelected \| undefined, page: TData) => TSelected` | Library addition. Optional. Folds crawled pages into a single `TSelected` value; when omitted the result is an array of all fetched raw pages (`TData[]`). |
-| + all `StandardQueryOptions` fields | | All options accepted by TanStack's `useQuery` / `useInfiniteQuery` except `queryKey`, `queryFn`, and `select` (which the factory owns). Includes `staleTime`, `gcTime`, `retry`, `retryOnMount`, `enabled`, `refetchOnWindowFocus`, `refetchOnReconnect`, `refetchOnMount`, `refetchInterval`, `refetchIntervalInBackground`, `networkMode`, `notifyOnChangeProps`, `throwOnError`, `structuralSharing`, `initialData`, `initialDataUpdatedAt`, `placeholderData`, `queryKeyHashFn`, `persister`, `meta`, `maxPages`, `experimental_prefetchInRender`. Function-form callbacks (e.g. `enabled: (query) => boolean`) are supported wherever TanStack accepts them. |
+| Field                               | Type                                                                                              | Notes                                                                                                                                                                                   |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `queryKey`                          | `QueryKey`                                                                                        | Namespace segments. Params are appended at call time.                                                                                                                                   |
+| `queryFn`                           | `(params: TParams, ctx: QueryFunctionContext) => TData \| Promise<TData> \| AsyncIterable<TData>` | Same as TanStack, with an extra leading `params` argument. Returns an `AsyncIterable` to use iterator-based crawling.                                                                   |
+| `select`                            | `(data: TData) => TSelected`                                                                      | Exact TanStack API. Composed automatically on child factories.                                                                                                                          |
+| `getNextPageParam`                  | `GetNextPageParamFunction<TPageParam, TData>`                                                     | Exact TanStack API. Required (with `shouldFetchNextPage`) to activate cursor-based crawling. Required (with `initialPageParam`) for `.infinite()`.                                      |
+| `initialPageParam`                  | `TPageParam`                                                                                      | Exact TanStack API. Drives `TPageParam` inference. Required for `.infinite()` to work at runtime.                                                                                       |
+| `getPreviousPageParam`              | `GetPreviousPageParamFunction<TPageParam, TData>`                                                 | Exact TanStack API. Passed through on `.infinite()`.                                                                                                                                    |
+| `shouldFetchNextPage`               | `(combined: TSelected \| undefined, crawlOptions: TCrawlOptions) => boolean`                      | Library addition. **Required to activate crawling.** Called after each page — return `true` to keep fetching, `false` to stop.                                                          |
+| `reduce`                            | `(acc: TSelected \| undefined, page: TData) => TSelected`                                         | Library addition. Optional. Folds crawled pages into a single `TSelected` value; when omitted the result is an array of all fetched raw pages (`TData[]`).                              |
+| + all `StandardQueryOptions` fields |                                                                                                   | `staleTime`, `gcTime`, `retry`, `enabled`, `refetchOnWindowFocus`, `placeholderData`, `initialData`, `meta`, etc. Function-form callbacks are supported wherever TanStack accepts them. |
 
 ### `QueryFactory<TParams, TData, TError, TSelected, TPageParam, TCrawlOptions>`
 
@@ -296,10 +414,8 @@ Return type of `factory.infinite(params)`. Pass directly to `useInfiniteQuery()`
 
 ## Running the sandbox
 
-The sandbox contains six interactive demos using a mock paginated API: basic single-page fetch, full crawl, factory composition, infinite query with per-page crawling, early-stop target search, and namespace-based cache invalidation.
-
 ```bash
 npm run sandbox
 ```
 
-This starts a Vite dev server. Navigate to the URL it prints (typically `http://localhost:5173`).
+Starts a Vite dev server with interactive demos covering every pattern: basic single-page fetch, async iterator queryFns, crawl-then-render, render-while-crawling, on-demand infinite pagination, client-side search with early stopping, factory composition, and scoped cache invalidation.
