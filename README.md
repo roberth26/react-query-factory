@@ -9,7 +9,7 @@
   <a href="https://roberth26.github.io/react-query-factory/"><strong>Visit the Sandbox</strong></a>
 </p>
 
-TanStack Query handles caching, syncing, and invalidation. What it doesn't do is crawl paginated APIs for you. This library adds that — a factory function that wraps your `queryFn` with a configurable crawl loop so `useQuery` can return accumulated results instead of a single page. The same factory produces `useInfiniteQuery` options, composes into child factories that share the cache, and exposes scope-aware invalidation keys. TanStack's API stays fully exposed at every call site.
+TanStack Query handles caching, syncing, and invalidation. What it doesn't do is crawl paginated APIs for you. This library adds that — a factory function that wraps your `queryFn` with a configurable crawl loop so `useQuery` can return accumulated results instead of a single page. The `queryFn` can be a plain async function or an async iterable (e.g. an AWS SDK paginator), with no cursor wiring required in the latter case. The same factory produces `useInfiniteQuery` options, composes into child factories that share the cache, and exposes scope-aware invalidation keys. TanStack's API stays fully exposed at every call site.
 
 Zero runtime dependencies.
 
