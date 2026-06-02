@@ -176,9 +176,9 @@ interface NormalizedConfig {
   queryKey: QueryKey;
   parentKey?: QueryKey;
   queryFn?: (
-    params: any,
-    ctx: QueryFunctionContext<any, any>,
-  ) => any | AsyncIterable<any>;
+    params: unknown,
+    ctx: QueryFunctionContext<QueryKey, unknown>,
+  ) => unknown;
   select?: (data: any) => any;
   getNextPageParam?: GetNextPageParamFunction<any, any>;
   getPreviousPageParam?: GetPreviousPageParamFunction<any, any>;
@@ -387,6 +387,7 @@ function buildInfiniteCrawlingQueryFn<TData, TPageParam, TSelected>(
     // ── Async iterable path ──────────────────────────────────────────────
     if (isAsyncIterable<TData>(initialResult)) {
       const pages: TData[] = [];
+      const startParam = context.pageParam as TPageParam;
       let acc: TSelected | undefined = undefined;
       let nextBatchParam: TPageParam | null | undefined = null;
 
@@ -395,7 +396,9 @@ function buildInfiniteCrawlingQueryFn<TData, TPageParam, TSelected>(
         pages.push(page);
         acc = reduce(acc, page);
 
-        const nextParam = getNextPageParam(page, pages, undefined as any, []);
+        const nextParam = getNextPageParam(page, pages, startParam, [
+          startParam,
+        ]);
         nextBatchParam = nextParam ?? null;
 
         if (nextParam == null) break;
@@ -420,11 +423,10 @@ function buildInfiniteCrawlingQueryFn<TData, TPageParam, TSelected>(
       pageParams.push(currentParam);
       acc = reduce(acc, page);
 
-      if (context.signal?.aborted) break;
-
       const nextParam = getNextPageParam(page, pages, currentParam, pageParams);
       nextBatchParam = nextParam ?? null;
 
+      if (context.signal?.aborted) break;
       if (nextParam == null) break;
       if (!shouldFetchNextPage(acc, crawlOptions)) break;
       currentParam = nextParam as TPageParam;
@@ -909,7 +911,7 @@ export function queryFactory(
           getPreviousPageParam:
             childConfig.getPreviousPageParam ?? parentCfg.getPreviousPageParam,
           initialPageParam:
-            childConfig.initialPageParam !== undefined
+            'initialPageParam' in childConfig
               ? childConfig.initialPageParam
               : parentCfg.initialPageParam,
           shouldFetchNextPage:
