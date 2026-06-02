@@ -14,10 +14,9 @@ import {
   SideNavigation,
   SideNavigationProps,
   Spinner,
-  SplitPanel,
   TopNavigation,
 } from '@cloudscape-design/components';
-import { ReactQueryDevtoolsPanel } from '@tanstack/react-query-devtools/production';
+import { ReactQueryDevtools } from '@tanstack/react-query-devtools/production';
 import { CodeBlock } from './shared.js';
 import { useNotifications } from './notifications.js';
 
@@ -60,12 +59,13 @@ export default function App() {
   const isNavigating = navigation.state === 'loading';
 
   const [showSource, setShowSource] = useState(false);
-  const [devtoolsOpen, setDevtoolsOpen] = useState(false);
   const { notifications } = useNotifications();
 
   useEffect(() => {
     setShowSource(false);
   }, [activeHref]);
+
+  const showDevtools = source && label !== 'Playbook' && label !== 'README';
 
   return (
     <>
@@ -106,26 +106,6 @@ export default function App() {
       <AppLayout
         headerSelector="#top-nav"
         toolsHide
-        {...(source && label !== 'Playbook' && label !== 'README'
-          ? {
-              splitPanel: (
-                <SplitPanel
-                  header="TanStack Query Devtools"
-                  hidePreferencesButton
-                  closeBehavior="collapse"
-                >
-                  <ReactQueryDevtoolsPanel
-                    theme="dark"
-                    style={{ height: '100%' }}
-                  />
-                </SplitPanel>
-              ),
-              splitPanelOpen: devtoolsOpen,
-              splitPanelPreferences: { position: 'bottom' },
-              onSplitPanelToggle: ({ detail }: { detail: { open: boolean } }) =>
-                setDevtoolsOpen(detail.open),
-            }
-          : {})}
         notifications={<Flashbar items={notifications} />}
         navigation={
           <SideNavigation
@@ -143,7 +123,7 @@ export default function App() {
               <Header
                 variant="h1"
                 description={
-                  source && label !== 'Playbook' && label !== 'README'
+                  showDevtools
                     ? '95 mock EC2 instances · all AWS calls simulated'
                     : undefined
                 }
@@ -164,6 +144,7 @@ export default function App() {
           </ContentLayout>
         }
       />
+      {showDevtools && <ReactQueryDevtools buttonPosition="bottom-right" />}
     </>
   );
 }
