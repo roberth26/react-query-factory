@@ -8,6 +8,7 @@ import {
 import {
   AppLayout,
   Box,
+  Button,
   ContentLayout,
   Flashbar,
   Header,
@@ -22,6 +23,7 @@ import { useNotifications } from './notifications.js';
 
 const NAV_ITEMS = [
   { type: 'link', text: 'README', href: '/readme' },
+  { type: 'link', text: 'Walkthrough', href: '/walkthrough' },
   { type: 'link', text: 'Playbook', href: '/playbook' },
   {
     type: 'section',
@@ -65,7 +67,12 @@ export default function App() {
     setShowSource(false);
   }, [activeHref]);
 
-  const showDevtools = source && label !== 'Playbook' && label !== 'README';
+  const isContentPage =
+    !!source &&
+    label !== 'README' &&
+    label !== 'Walkthrough' &&
+    label !== 'Playbook';
+  const showDevtools = isContentPage;
 
   return (
     <>
@@ -86,16 +93,8 @@ export default function App() {
               href: 'https://github.com/roberth26/react-query-factory',
               external: true,
               externalIconAriaLabel: '(opens in new tab)',
+              disableUtilityCollapse: true,
             },
-            ...(source
-              ? [
-                  {
-                    type: 'button' as const,
-                    text: showSource ? 'Close source' : 'View source',
-                    onClick: () => setShowSource(s => !s),
-                  },
-                ]
-              : []),
           ]}
           i18nStrings={{
             overflowMenuTriggerText: 'More',
@@ -126,6 +125,13 @@ export default function App() {
                   showDevtools
                     ? '95 mock EC2 instances · all AWS calls simulated'
                     : undefined
+                }
+                actions={
+                  isContentPage ? (
+                    <Button onClick={() => setShowSource(s => !s)}>
+                      {showSource ? 'Close source' : 'View source'}
+                    </Button>
+                  ) : undefined
                 }
               >
                 {label}

@@ -35,12 +35,12 @@ const FACTORY_CODE = `\
 // The full list of instance types is ready before the Select renders.
 const describeInstanceTypes = queryFactory({
   queryKey: ['ec2:DescribeInstanceTypes'],
-  queryFn: (params, ctx) => ec2.send(new DescribeInstanceTypesCommand({ ...params, NextToken: ctx.pageParam }), ...),
+  queryFn: (params, ctx) => ec2.send(new DescribeInstanceTypesCommand({ ...params, NextToken: ctx.pageParam ?? params.NextToken }), ...),
   getNextPageParam: r => r.NextToken,
   initialPageParam: undefined as string | undefined,
   reduce: (acc, page): InstanceTypeInfo[] => [...(acc ?? []), ...(page.InstanceTypes ?? [])],
   shouldFetchNextPage: (types, opts: { minResults?: number }) =>
-    opts.minResults == null || types.length < opts.minResults,
+    opts.minResults != null && types.length < opts.minResults,
 });
 
 // Both queries run in parallel. instanceTypes populates the Select;

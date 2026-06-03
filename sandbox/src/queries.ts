@@ -26,7 +26,10 @@ export const describeInstances = queryFactory({
   queryKey: ['ec2:DescribeInstances'],
   queryFn: (params: DescribeInstancesRequest, ctx) =>
     ec2.send(
-      new DescribeInstancesCommand({ ...params, NextToken: ctx.pageParam }),
+      new DescribeInstancesCommand({
+        ...params,
+        NextToken: ctx.pageParam ?? params.NextToken,
+      }),
       {
         abortSignal: ctx.signal,
       },
@@ -38,14 +41,17 @@ export const describeInstances = queryFactory({
     ...(page.Reservations?.flatMap(r => r.Instances ?? []) ?? []),
   ],
   shouldFetchNextPage: (instances, opts: { minResults?: number }) =>
-    opts.minResults == null || instances.length < opts.minResults,
+    opts.minResults != null && instances.length < opts.minResults,
 });
 
 export const describeInstanceTypes = queryFactory({
   queryKey: ['ec2:DescribeInstanceTypes'],
   queryFn: (params: DescribeInstanceTypesRequest, ctx) =>
     ec2.send(
-      new DescribeInstanceTypesCommand({ ...params, NextToken: ctx.pageParam }),
+      new DescribeInstanceTypesCommand({
+        ...params,
+        NextToken: ctx.pageParam ?? params.NextToken,
+      }),
       {
         abortSignal: ctx.signal,
       },
@@ -57,7 +63,7 @@ export const describeInstanceTypes = queryFactory({
     ...(page.InstanceTypes ?? []),
   ],
   shouldFetchNextPage: (types, opts: { minResults?: number }) =>
-    opts.minResults == null || types.length < opts.minResults,
+    opts.minResults != null && types.length < opts.minResults,
 });
 
 export const runningInstances = queryFactory(describeInstances, {

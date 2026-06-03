@@ -167,7 +167,10 @@ const describeInstances = queryFactory({
   queryKey: ['ec2:DescribeInstances'],
   queryFn: (params: DescribeInstancesCommandInput, ctx) =>
     ec2.send(
-      new DescribeInstancesCommand({ ...params, NextToken: ctx.pageParam }),
+      new DescribeInstancesCommand({
+        ...params,
+        NextToken: ctx.pageParam ?? params.NextToken,
+      }),
       {
         abortSignal: ctx.signal,
       },
@@ -179,7 +182,7 @@ const describeInstances = queryFactory({
     ...(page.Reservations?.flatMap(r => r.Instances ?? []) ?? []),
   ],
   shouldFetchNextPage: (instances, opts: { minResults?: number }) =>
-    opts.minResults == null || instances.length < opts.minResults,
+    opts.minResults != null && instances.length < opts.minResults,
 });
 
 // useQuery — crawls all pages, data is Instance[]
@@ -234,7 +237,7 @@ The `crawlOptions` argument passed at call time is forwarded to `shouldFetchNext
 const describeInstances = queryFactory({
   // ...
   shouldFetchNextPage: (instances, opts: { minResults?: number }) =>
-    opts.minResults == null || instances.length < opts.minResults,
+    opts.minResults != null && instances.length < opts.minResults,
 });
 
 // two separate cache entries — crawl independently
@@ -258,7 +261,7 @@ const describeInstances = queryFactory({
   queryFn: (params: DescribeInstancesCommandInput) =>
     paginateDescribeInstances({ client: ec2 }, params),
   shouldFetchNextPage: (instances, opts: { minResults?: number }) =>
-    opts.minResults == null || instances.length < opts.minResults,
+    opts.minResults != null && instances.length < opts.minResults,
   reduce: (acc, page: DescribeInstancesResponse): Instance[] => [
     ...(acc ?? []),
     ...(page.Reservations?.flatMap(r => r.Instances ?? []) ?? []),
@@ -281,7 +284,7 @@ const describeInstances = queryFactory({
   getNextPageParam: page => page.NextToken,
   initialPageParam: undefined as string | undefined,
   shouldFetchNextPage: (instances, opts: { minResults?: number }) =>
-    opts.minResults == null || instances.length < opts.minResults,
+    opts.minResults != null && instances.length < opts.minResults,
   reduce: (acc, page): Instance[] => [
     ...(acc ?? []),
     ...(page.Instances ?? []),

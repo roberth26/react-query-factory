@@ -12,6 +12,7 @@ export const router = createBrowserRouter([
       { index: true, loader: () => redirect('/readme') },
       { path: 'readme', lazy: () => import('./pages/ReadmePage.js') },
       { path: 'playbook', lazy: () => import('./pages/PlaybookPage.js') },
+      { path: 'walkthrough', lazy: () => import('./pages/WalkthroughPage.js') },
       { path: 'basic', lazy: () => import('./pages/BasicPage.js') },
       { path: 'paginator', lazy: () => import('./pages/PaginatorPage.js') },
       {

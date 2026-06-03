@@ -35,7 +35,7 @@ const describeInstancesViaPaginator = queryFactory({
   shouldFetchNextPage: (
     instances: Instance[] | undefined,
     opts: { minResults?: number },
-  ) => opts.minResults == null || (instances?.length ?? 0) < opts.minResults,
+  ) => opts.minResults != null && (instances?.length ?? 0) < opts.minResults,
   reduce: (
     acc: Instance[] | undefined,
     page: DescribeInstancesResult,
@@ -54,7 +54,7 @@ const describeInstances = queryFactory({
   queryFn: (params) =>
     paginateDescribeInstances({ client: ec2, pageSize: params.pageSize }, {}),
   shouldFetchNextPage: (instances, opts: { minResults?: number }) =>
-    opts.minResults == null || instances.length < opts.minResults,
+    opts.minResults != null && instances.length < opts.minResults,
   reduce: (acc, page: DescribeInstancesResult): Instance[] => [
     ...(acc ?? []),
     ...(page.Reservations?.flatMap(r => r.Instances ?? []) ?? []),
@@ -65,7 +65,7 @@ const describeInstances = queryFactory({
 const describeInstances = queryFactory({
   queryKey: ['ec2:DescribeInstances'],
   queryFn: (params, ctx) =>
-    ec2.send(new DescribeInstancesCommand({ ...params, NextToken: ctx.pageParam })),
+    ec2.send(new DescribeInstancesCommand({ ...params, NextToken: ctx.pageParam ?? params.NextToken })),
   getNextPageParam: r => r.NextToken,                // ← not needed with async iterator
   initialPageParam: undefined as string | undefined, // ← not needed with async iterator
   shouldFetchNextPage: ...,
