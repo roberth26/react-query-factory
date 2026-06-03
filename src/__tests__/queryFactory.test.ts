@@ -376,6 +376,30 @@ describe('queryFactory – crawling', () => {
     ).rejects.toThrow('Aborted');
   });
 
+  it('returns [] when signal is pre-aborted and no reduce is configured', async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    const factory = queryFactory({
+      queryKey: ['users'],
+      queryFn: async () =>
+        ({
+          users: [{ id: '1', name: 'Alice' }],
+          nextCursor: null,
+        }) as PagedUsers,
+      getNextPageParam: p => p.nextCursor,
+      shouldFetchNextPage: () => true,
+      initialPageParam: null as string | null,
+      // no reduce
+    });
+
+    const result = await factory(undefined).queryFn!({
+      signal: controller.signal,
+      meta: undefined,
+    } as any);
+    expect(result).toEqual([]);
+  });
+
   it('returns empty result when the only page has no data', async () => {
     const pageFn = vi.fn(
       async () => ({ users: [], nextCursor: null }) as PagedUsers,
@@ -639,6 +663,22 @@ describe('queryFactory – async iterable queryFn', () => {
     expect(result).toEqual([{ id: '1', name: 'u1' }]);
   });
 
+  it('returns raw pages array when reduce is absent', async () => {
+    const allPages: PagedUsers[] = [
+      { users: [{ id: '1', name: 'Alice' }], nextCursor: 'c2' },
+      { users: [{ id: '2', name: 'Bob' }], nextCursor: null },
+    ];
+    const factory = queryFactory({
+      queryKey: ['users'],
+      queryFn: () => makePages(allPages),
+      shouldFetchNextPage: () => true,
+      // no reduce — result is TData[]
+    });
+
+    const result = await factory(undefined).queryFn!(ctx);
+    expect(result).toEqual(allPages);
+  });
+
   it('.infinite() works with async iterable — ctx.pageParam as startingToken', async () => {
     const startingTokens: unknown[] = [];
     const factory = queryFactory({
@@ -900,6 +940,43 @@ describe('queryFactory – composition', () => {
     // target is in the second page → should stop after 2 API calls
     await child(undefined, { targetId: 'u2' }).queryFn!(ctx);
     expect(pageFn).toHaveBeenCalledTimes(2);
+  });
+
+  it('throws when first argument is a function but not a queryFactory result', () => {
+    expect(() => queryFactory((() => ({})) as any, {})).toThrow(
+      'queryFactory: first argument must be a factory created by queryFactory()',
+    );
+  });
+
+  it('wraps a plain-string child queryKey into an array segment', () => {
+    const parent = queryFactory({
+      queryKey: ['users'],
+      queryFn: async (p: { filter: string }) => [] as User[],
+    });
+    const child = queryFactory(parent, {
+      queryKey: 'active' as unknown as QueryKey,
+    });
+    expect(child({ filter: 'x' }).queryKey).toEqual([
+      'users',
+      { filter: 'x' },
+      'active',
+    ]);
+  });
+
+  it('child without queryFn can override initialPageParam', () => {
+    const parent = queryFactory({
+      queryKey: ['users'],
+      queryFn: async (_p: { filter: string }) => [] as User[],
+      getNextPageParam: () => null,
+      initialPageParam: null as string | null,
+    });
+    const child = queryFactory(parent, {
+      queryKey: ['scoped'],
+      initialPageParam: 'custom-start' as string | null,
+    });
+    expect(child.infinite({ filter: 'x' }).initialPageParam).toBe(
+      'custom-start',
+    );
   });
 
   it('supports deep composition (grandchild)', () => {
