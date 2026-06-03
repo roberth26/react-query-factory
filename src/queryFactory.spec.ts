@@ -5,11 +5,11 @@ import type {
   InfiniteData,
   QueryKey,
 } from '@tanstack/react-query';
-import { queryFactory } from '../queryFactory.js';
+import { queryFactory } from './queryFactory.js';
 import type {
   ResolvedQueryOptions,
   ResolvedInfiniteOptions,
-} from '../queryFactory.js';
+} from './queryFactory.js';
 
 // ---------------------------------------------------------------------------
 // Shared fixtures

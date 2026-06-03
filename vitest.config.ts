@@ -5,7 +5,7 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['src/**'],
-      exclude: ['src/index.ts', 'src/__tests__/**'], // re-exports and test files
+      exclude: ['src/index.ts', 'src/**/*.spec.ts', 'src/**/*.test.ts'], // re-exports and test files
       reporter: ['text'],
     },
   },
