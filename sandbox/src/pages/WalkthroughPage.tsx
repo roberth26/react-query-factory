@@ -601,10 +601,9 @@ function EvolutionPage() {
         style={{
           borderRadius: 8,
           overflow: 'hidden',
-          border: '1px solid var(--color-border-divider-default, #e9ebed)',
         }}
       >
-        <CodeView content={displayContent} highlight={highlight} />
+        <CodeView content={displayContent} highlight={highlight} lineNumbers />
         <div
           style={{
             height: 3,
