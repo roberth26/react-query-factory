@@ -258,8 +258,12 @@ import { paginateDescribeInstances } from '@aws-sdk/client-ec2';
 
 const describeInstances = queryFactory({
   queryKey: ['ec2:DescribeInstances'],
-  queryFn: (params: DescribeInstancesCommandInput) =>
-    paginateDescribeInstances({ client: ec2 }, params),
+  queryFn: (params: DescribeInstancesCommandInput, ctx) =>
+    paginateDescribeInstances(
+      { client: ec2, startingToken: ctx.pageParam ?? params.NextToken },
+      params,
+    ),
+  initialPageParam: undefined as string | undefined,
   shouldFetchNextPage: (instances, opts: { minResults?: number }) =>
     opts.minResults != null && instances.length < opts.minResults,
   reduce: (acc, page: DescribeInstancesResponse): Instance[] => [
@@ -278,8 +282,8 @@ const describeInstances = queryFactory({
   queryKey: ['ec2:DescribeInstances'],
   queryFn: (params: DescribeInstancesCommandInput, ctx) =>
     paginateDescribeInstances(
-      { client: ec2 },
-      { ...params, StartingToken: ctx.pageParam },
+      { client: ec2, startingToken: ctx.pageParam ?? params.NextToken },
+      params,
     ),
   getNextPageParam: page => page.NextToken,
   initialPageParam: undefined as string | undefined,

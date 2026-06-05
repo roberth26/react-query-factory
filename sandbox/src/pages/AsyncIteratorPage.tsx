@@ -1,12 +1,10 @@
 import { useState } from 'react';
+import { useLoaderData } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useCollection } from '@cloudscape-design/collection-hooks';
-import { queryFactory } from 'react-query-factory';
-import type { DescribeInstancesResult, Instance } from '../aws-sdk-mock.js';
-import { paginateDescribeInstances } from '../aws-sdk-mock.js';
-import { ec2 } from '../queries.js';
+import { describeInstancesViaPaginator } from '../queries.js';
 import { queryClient } from '../queryClient.js';
-import pageSource from './PaginatorPage.tsx?raw';
+import pageSource from './AsyncIteratorPage.tsx?raw';
 import {
   CollectionPreferences,
   ExpandableSection,
@@ -25,40 +23,20 @@ import {
 
 export const handle = { label: 'Async iterator', source: pageSource };
 
-const describeInstancesViaPaginator = queryFactory({
-  queryKey: ['ec2:DescribeInstances:paginator'],
-  queryFn: (params: { pageSize?: number }) =>
-    paginateDescribeInstances(
-      { client: ec2, pageSize: params.pageSize ?? 20 },
-      {},
-    ),
-  shouldFetchNextPage: (
-    instances: Instance[] | undefined,
-    opts: { minResults?: number },
-  ) => opts.minResults != null && (instances?.length ?? 0) < opts.minResults,
-  reduce: (
-    acc: Instance[] | undefined,
-    page: DescribeInstancesResult,
-  ): Instance[] => [
-    ...(acc ?? []),
-    ...(page.Reservations?.flatMap(r => r.Instances ?? []) ?? []),
-  ],
-});
-
 const FACTORY_CODE = `\
-// Async iterator queryFn — no getNextPageParam, no initialPageParam, no cursor threading.
-// The iterator manages its own cursor; the factory just walks it with for await...of.
-// AWS SDK v3 paginator functions return async iterables and work here directly.
-const describeInstances = queryFactory({
-  queryKey: ['ec2:DescribeInstances'],
-  queryFn: (params) =>
-    paginateDescribeInstances({ client: ec2, pageSize: params.pageSize }, {}),
-  shouldFetchNextPage: (instances, opts: { minResults?: number }) =>
-    opts.minResults != null && instances.length < opts.minResults,
-  reduce: (acc, page: DescribeInstancesResult): Instance[] => [
-    ...(acc ?? []),
-    ...(page.Reservations?.flatMap(r => r.Instances ?? []) ?? []),
-  ],
+// Async iterator queryFn — composed from describeInstances, overrides queryFn only.
+// shouldFetchNextPage and reduce are inherited from the parent factory.
+// The iterator manages its own cursor; getNextPageParam is not required.
+const describeInstancesViaPaginator = queryFactory(describeInstances, {
+  queryKey: ['async-iterator'],
+  queryFn: (params: DescribeInstancesRequest, ctx) =>
+    paginateDescribeInstances(
+      { client: ec2, pageSize: params.MaxResults, startingToken: ctx.pageParam ?? params.NextToken },
+      params,
+    ),
+  initialPageParam: undefined as string | undefined,
+  shouldFetchNextPage: ...,
+  reduce: ...,
 });
 
 // Compare with the cursor-based equivalent — three extra fields required:
@@ -73,24 +51,19 @@ const describeInstances = queryFactory({
 });`;
 
 export async function loader() {
-  await queryClient.prefetchQuery(
-    describeInstancesViaPaginator(
-      { pageSize: 20 },
-      { minResults: Number.MAX_SAFE_INTEGER },
-    ),
+  const options = describeInstancesViaPaginator(
+    { MaxResults: 20 },
+    { minResults: Number.MAX_SAFE_INTEGER },
   );
-  return null;
+  await queryClient.prefetchQuery(options);
+  return options;
 }
 
-function PaginatorPage() {
+function AsyncIteratorPage() {
+  const options = useLoaderData<Awaited<ReturnType<typeof loader>>>();
   const [preferences, setPreferences] = useState({ pageSize: 20 });
 
-  const { data, isLoading } = useQuery(
-    describeInstancesViaPaginator(
-      { pageSize: 20 },
-      { minResults: Number.MAX_SAFE_INTEGER },
-    ),
-  );
+  const { data, isLoading } = useQuery(options);
 
   const { items, filterProps, paginationProps, collectionProps } =
     useCollection(data ?? [], {
@@ -158,4 +131,4 @@ function PaginatorPage() {
   );
 }
 
-export { PaginatorPage as Component };
+export { AsyncIteratorPage as Component };

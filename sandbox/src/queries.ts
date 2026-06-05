@@ -4,9 +4,11 @@ import {
   DescribeInstancesCommand,
   DescribeInstanceTypesCommand,
   EC2Client,
+  paginateDescribeInstances,
 } from './aws-sdk-mock.js';
 import type {
   DescribeInstancesRequest,
+  DescribeInstancesResult,
   DescribeInstanceTypesRequest,
   Instance,
   InstanceTypeInfo,
@@ -64,6 +66,21 @@ export const describeInstanceTypes = queryFactory({
   ],
   shouldFetchNextPage: (types, opts: { minResults?: number }) =>
     opts.minResults != null && types.length < opts.minResults,
+});
+
+export const describeInstancesViaPaginator = queryFactory(describeInstances, {
+  queryKey: ['async-iterator'],
+  queryFn: (params: DescribeInstancesRequest, ctx) =>
+    paginateDescribeInstances(
+      {
+        client: ec2,
+        pageSize: params.MaxResults,
+        startingToken: ctx.pageParam ?? params.NextToken,
+      },
+      params,
+    ),
+  initialPageParam: undefined as string | undefined,
+  // shouldFetchNextPage and reduce inherited from describeInstances
 });
 
 export const runningInstances = queryFactory(describeInstances, {

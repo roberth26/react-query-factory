@@ -34,7 +34,7 @@ const BASIC: PatternInfo = {
 
 const ASYNC_ITERATOR: PatternInfo = {
   name: 'Async iterator',
-  href: '/paginator',
+  href: '/async-iterator',
   tag: 'Async iterable',
   tagColor: 'blue',
   useWhen:

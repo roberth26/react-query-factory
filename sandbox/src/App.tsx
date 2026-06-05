@@ -31,7 +31,7 @@ const NAV_ITEMS = [
     defaultExpanded: true,
     items: [
       { type: 'link', text: 'Basic', href: '/basic' },
-      { type: 'link', text: 'Async iterator', href: '/paginator' },
+      { type: 'link', text: 'Async iterator', href: '/async-iterator' },
       { type: 'link', text: 'Crawl-then-render', href: '/crawl-then-render' },
       {
         type: 'link',

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useLoaderData } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useCollection } from '@cloudscape-design/collection-hooks';
 import type { AvailabilityZone } from '../aws-sdk-mock.js';
@@ -33,13 +34,15 @@ const { data } = useQuery(describeAvailabilityZones());
 // data.AvailabilityZones → AvailabilityZone[]  (single API call)`;
 
 export async function loader() {
-  await queryClient.prefetchQuery(describeAvailabilityZones());
-  return null;
+  const options = describeAvailabilityZones();
+  await queryClient.prefetchQuery(options);
+  return options;
 }
 
 function BasicPage() {
+  const options = useLoaderData<Awaited<ReturnType<typeof loader>>>();
   const [preferences, setPreferences] = useState({ pageSize: 10 });
-  const { data, isLoading, isFetching } = useQuery(describeAvailabilityZones());
+  const { data, isLoading, isFetching } = useQuery(options);
 
   const { items, filterProps, paginationProps, collectionProps } =
     useCollection(data?.AvailabilityZones ?? [], {

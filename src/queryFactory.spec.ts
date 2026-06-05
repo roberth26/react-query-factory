@@ -873,7 +873,7 @@ describe('queryFactory – composition', () => {
     });
   });
 
-  it('does not inherit crawling options when child provides a new queryFn', () => {
+  it('does not inherit getNextPageParam/initialPageParam when child provides a new queryFn', () => {
     const gnp = vi.fn() as any;
     const parent = queryFactory({
       queryKey: ['users'],
@@ -893,6 +893,39 @@ describe('queryFactory – composition', () => {
     expect(typeof childGnp).toBe('function');
     expect(childGnp({} as any, [], null as any, [])).toBeUndefined();
     expect(child.infinite({ filter: 'x' }).initialPageParam).toBeUndefined();
+  });
+
+  it('inherits shouldFetchNextPage and reduce from parent when child provides a new queryFn but omits them', async () => {
+    let call = 0;
+    const pages: PagedUsers[] = [
+      { users: [{ id: '1', name: 'Alice' }], nextCursor: 'p2' },
+      { users: [{ id: '2', name: 'Bob' }], nextCursor: null },
+    ];
+    const pageFn = vi.fn(async (_p: void, _ctx: any) => pages[call++]!);
+
+    const parent = queryFactory({
+      queryKey: ['users'],
+      queryFn: async () => ({ users: [], nextCursor: null }) as PagedUsers,
+      getNextPageParam: p => p.nextCursor,
+      initialPageParam: null as string | null,
+      reduce: (acc, p): User[] => [...(acc ?? []), ...p.users],
+      shouldFetchNextPage: () => true,
+    });
+
+    const child = queryFactory(parent, {
+      queryFn: pageFn,
+      getNextPageParam: p => p.nextCursor,
+      initialPageParam: null as string | null,
+      // shouldFetchNextPage and reduce intentionally omitted — inherited from parent
+    });
+
+    const result = await child(undefined).queryFn!(ctx);
+    expect(pageFn).toHaveBeenCalledTimes(2);
+    // parent's reduce flattens pages into User[]
+    expect(result).toEqual([
+      { id: '1', name: 'Alice' },
+      { id: '2', name: 'Bob' },
+    ]);
   });
 
   it('inherits crawling options when child provides no new queryFn', () => {

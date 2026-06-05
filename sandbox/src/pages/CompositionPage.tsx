@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useLoaderData } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useCollection } from '@cloudscape-design/collection-hooks';
 import type { Instance } from '../aws-sdk-mock.js';
@@ -54,8 +55,9 @@ const { data: stopped } = useQuery(stoppedInstances({ MaxResults: 20 }));
 queryClient.invalidateQueries(describeInstances())`;
 
 export async function loader() {
-  await queryClient.prefetchQuery(describeInstances({ MaxResults: 20 }));
-  return null;
+  const options = describeInstances({ MaxResults: 20 });
+  await queryClient.prefetchQuery(options);
+  return options;
 }
 
 function Stat({ label, value }: { label: string; value: number | undefined }) {
@@ -68,16 +70,13 @@ function Stat({ label, value }: { label: string; value: number | undefined }) {
 }
 
 function CompositionPage() {
+  const options = useLoaderData<Awaited<ReturnType<typeof loader>>>();
   const queryClient = useQueryClient();
   const { addNotification } = useNotifications();
   const [stoppingIds, setStoppingIds] = useState<Set<string>>(new Set());
   const [preferences, setPreferences] = useState({ pageSize: 20 });
 
-  const {
-    data: all,
-    isLoading,
-    isFetching,
-  } = useQuery(describeInstances({ MaxResults: 20 }));
+  const { data: all, isLoading, isFetching } = useQuery(options);
   const { data: running } = useQuery(runningInstances({ MaxResults: 20 }));
   const { data: stopped } = useQuery(stoppedInstances({ MaxResults: 20 }));
 

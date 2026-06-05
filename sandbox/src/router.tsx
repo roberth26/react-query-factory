@@ -14,7 +14,10 @@ export const router = createBrowserRouter([
       { path: 'playbook', lazy: () => import('./pages/PlaybookPage.js') },
       { path: 'walkthrough', lazy: () => import('./pages/WalkthroughPage.js') },
       { path: 'basic', lazy: () => import('./pages/BasicPage.js') },
-      { path: 'paginator', lazy: () => import('./pages/PaginatorPage.js') },
+      {
+        path: 'async-iterator',
+        lazy: () => import('./pages/AsyncIteratorPage.js'),
+      },
       {
         path: 'crawl-then-render',
         lazy: () => import('./pages/CrawlThenRenderPage.js'),

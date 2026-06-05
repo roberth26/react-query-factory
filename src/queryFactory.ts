@@ -668,6 +668,54 @@ export function queryFactory<
 >;
 
 /**
+ * Creates a child factory whose queryFn returns an AsyncIterable (e.g. an AWS SDK v3
+ * paginator). Inherits the parent's key namespace. Use this overload when switching
+ * to a paginator-based fetch while keeping the same result shape and crawl options.
+ */
+export function queryFactory<
+  TChildParams extends TParentParams,
+  TData = unknown,
+  TError = Error,
+  TParentSelected = TData,
+  TChildSelected = TParentSelected,
+  TParentParams = TChildParams,
+  TPageParam = unknown,
+  TCrawlOptions extends Record<string, unknown> = Record<string, unknown>,
+>(
+  parent: QueryFactory<TParentParams, any, any, TParentSelected, any, any, any>,
+  config: StandardQueryOptions<TError, TData> & {
+    queryKey?: QueryKey;
+    queryFn: (
+      params: TChildParams,
+      context: QueryFunctionContext<
+        QueryKey,
+        [unknown] extends [TPageParam] ? never : TPageParam
+      >,
+    ) => AsyncIterable<TData>;
+    select?: (data: TData) => TChildSelected;
+    reduce?: (
+      accumulator: TChildSelected | undefined,
+      page: TData,
+    ) => TChildSelected;
+    shouldFetchNextPage?: (
+      combined: TChildSelected | undefined,
+      crawlOptions: TCrawlOptions,
+    ) => boolean;
+    getNextPageParam?: GetNextPageParamFunction<TPageParam, TData>;
+    getPreviousPageParam?: GetPreviousPageParamFunction<TPageParam, TData>;
+    initialPageParam?: TPageParam;
+  },
+): QueryFactory<
+  TChildParams,
+  TData,
+  TError,
+  TChildSelected,
+  TPageParam,
+  TCrawlOptions,
+  boolean
+>;
+
+/**
  * Creates a child factory that inherits the query key and standard options from
  * `parent` and introduces a new `queryFn`. The child's query key is appended to
  * the parent's, and standard options are shallow-merged (child wins).
@@ -902,8 +950,12 @@ export function queryFactory(
           getNextPageParam: childConfig.getNextPageParam,
           getPreviousPageParam: childConfig.getPreviousPageParam,
           initialPageParam: childConfig.initialPageParam,
-          shouldFetchNextPage: childConfig.shouldFetchNextPage,
-          reduce: childConfig.reduce,
+          // Fall back to parent's crawling logic when child doesn't override —
+          // useful when the child only changes how pages are fetched (e.g. switching
+          // to a paginator queryFn) but accumulates the same result shape.
+          shouldFetchNextPage:
+            childConfig.shouldFetchNextPage ?? parentCfg.shouldFetchNextPage,
+          reduce: childConfig.reduce ?? parentCfg.reduce,
         }
       : {
           getNextPageParam:

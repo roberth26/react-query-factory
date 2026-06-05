@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useLoaderData } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useCollection } from '@cloudscape-design/collection-hooks';
 import type {
@@ -56,28 +57,24 @@ const { data: instances } = useQuery(
 );`;
 
 export async function loader() {
+  const instanceTypesOptions = describeInstanceTypes(
+    { MaxResults: 10 },
+    { minResults: Number.MAX_SAFE_INTEGER },
+  );
   await Promise.all([
-    queryClient.prefetchQuery(
-      describeInstanceTypes(
-        { MaxResults: 10 },
-        { minResults: Number.MAX_SAFE_INTEGER },
-      ),
-    ),
+    queryClient.prefetchQuery(instanceTypesOptions),
     queryClient.prefetchQuery(describeInstances({ MaxResults: 20 })),
   ]);
-  return null;
+  return instanceTypesOptions;
 }
 
 function CrawlThenRenderPage() {
+  const instanceTypesOptions = useLoaderData<Awaited<ReturnType<typeof loader>>>();
   const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
   const [preferences, setPreferences] = useState({ pageSize: 20 });
 
-  const { data: instanceTypes, isLoading: typesLoading } = useQuery(
-    describeInstanceTypes(
-      { MaxResults: 10 },
-      { minResults: Number.MAX_SAFE_INTEGER },
-    ),
-  );
+  const { data: instanceTypes, isLoading: typesLoading } =
+    useQuery(instanceTypesOptions);
 
   const filters: DescribeInstancesRequest['Filters'] =
     selectedTypes.length > 0

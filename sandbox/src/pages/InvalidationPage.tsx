@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useLoaderData } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useCollection } from '@cloudscape-design/collection-hooks';
 import type { Instance } from '../aws-sdk-mock.js';
@@ -46,23 +47,24 @@ await queryClient.invalidateQueries(describeInstances({ MaxResults: 20 }))
 //     ['ec2:DescribeInstances', { MaxResults: 20 }, 'find', ...]  ← findInstance`;
 
 export async function loader() {
+  const instancesOptions = describeInstances({ MaxResults: 20 });
+  const runningOptions = runningInstances({ MaxResults: 20 });
   await Promise.all([
-    queryClient.prefetchQuery(describeInstances({ MaxResults: 20 })),
-    queryClient.prefetchQuery(runningInstances({ MaxResults: 20 })),
+    queryClient.prefetchQuery(instancesOptions),
+    queryClient.prefetchQuery(runningOptions),
   ]);
-  return null;
+  return { instancesOptions, runningOptions };
 }
 
 function InvalidationPage() {
+  const { instancesOptions, runningOptions } = useLoaderData<Awaited<ReturnType<typeof loader>>>();
   const queryClient = useQueryClient();
   const { addNotification } = useNotifications();
   const [stoppingIds, setStoppingIds] = useState<Set<string>>(new Set());
   const [preferences, setPreferences] = useState({ pageSize: 20 });
 
-  const { data, isLoading, isFetching } = useQuery(
-    describeInstances({ MaxResults: 20 }),
-  );
-  const { data: running } = useQuery(runningInstances({ MaxResults: 20 }));
+  const { data, isLoading, isFetching } = useQuery(instancesOptions);
+  const { data: running } = useQuery(runningOptions);
 
   const { mutate: stopInstance } = useMutation({
     mutationFn: (instanceId: string) =>
