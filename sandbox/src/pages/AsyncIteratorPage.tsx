@@ -30,7 +30,7 @@ const FACTORY_CODE = `\
 // the iterator manages its own cursor. Add them if you need .infinite() for
 // user-driven server pagination via useInfiniteQuery.
 const describeInstancesViaPaginator = queryFactory(describeInstances, {
-  queryKey: ['async-iterator'],
+  queryKey: ['paginator'],
   queryFn: (params: DescribeInstancesRequest, ctx) =>
     paginateDescribeInstances(
       { client: ec2, pageSize: params.MaxResults, startingToken: ctx.pageParam ?? params.NextToken },
