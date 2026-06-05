@@ -317,16 +317,13 @@ function buildCrawlingQueryFn<TData, TPageParam, TSelected>(
     }
 
     // ── Cursor-based path ────────────────────────────────────────────────
-    // Use a rolling "next result" pointer so the pre-fetched first call is
-    // consumed naturally on the first iteration without an isFirstPage flag.
     const pages: TData[] = [];
     const pageParams: TPageParam[] = [];
     let currentParam: TPageParam = initialPageParam;
     let acc: TSelected | undefined = undefined;
-    let nextResult: Promise<TData> = initialResult as Promise<TData>;
+    let page = await (initialResult as Promise<TData>);
 
     while (true) {
-      const page = await nextResult;
       pages.push(page);
       pageParams.push(currentParam);
       if (reduce) acc = reduce(acc, page);
@@ -337,11 +334,10 @@ function buildCrawlingQueryFn<TData, TPageParam, TSelected>(
 
       const nextParam = getNextPageParam(page, pages, currentParam, pageParams);
       if (nextParam == null) break;
-      currentParam = nextParam as TPageParam;
 
-      if (context.signal?.aborted) break;
+      currentParam = nextParam as TPageParam;
       ctx.pageParam = currentParam;
-      nextResult = queryFn(params, ctx as any) as Promise<TData>;
+      page = await (queryFn(params, ctx as any) as Promise<TData>);
     }
 
     if (reduce) {
@@ -415,10 +411,9 @@ function buildInfiniteCrawlingQueryFn<TData, TPageParam, TSelected>(
     let currentParam = context.pageParam as TPageParam;
     let acc: TSelected | undefined = undefined;
     let nextBatchParam: TPageParam | null | undefined = null;
-    let nextResult: Promise<TData> = initialResult as Promise<TData>;
+    let page = await (initialResult as Promise<TData>);
 
     while (true) {
-      const page = await nextResult;
       pages.push(page);
       pageParams.push(currentParam);
       acc = reduce(acc, page);
@@ -429,11 +424,10 @@ function buildInfiniteCrawlingQueryFn<TData, TPageParam, TSelected>(
       if (context.signal?.aborted) break;
       if (nextParam == null) break;
       if (!shouldFetchNextPage(acc, crawlOptions)) break;
-      currentParam = nextParam as TPageParam;
 
-      if (context.signal?.aborted) break;
+      currentParam = nextParam as TPageParam;
       ctx.pageParam = currentParam;
-      nextResult = queryFn(params, ctx as any) as Promise<TData>;
+      page = await (queryFn(params, ctx as any) as Promise<TData>);
     }
 
     if (acc === undefined) throw new DOMException('Aborted', 'AbortError');
