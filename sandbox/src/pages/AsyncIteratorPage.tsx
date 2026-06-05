@@ -25,7 +25,7 @@ export const handle = { label: 'Async iterator', source: pageSource };
 
 const FACTORY_CODE = `\
 // Async iterator queryFn — composed from describeInstances, overrides queryFn only.
-// shouldFetchNextPage and reduce are inherited from the parent factory.
+// shouldFetchNextPage, reduce, and the crawl key are inherited from the parent.
 // The iterator manages its own cursor; getNextPageParam is not required.
 const describeInstancesViaPaginator = queryFactory(describeInstances, {
   queryKey: ['async-iterator'],
@@ -35,8 +35,6 @@ const describeInstancesViaPaginator = queryFactory(describeInstances, {
       params,
     ),
   initialPageParam: undefined as string | undefined,
-  shouldFetchNextPage: ...,
-  reduce: ...,
 });
 
 // Compare with the cursor-based equivalent — three extra fields required:
