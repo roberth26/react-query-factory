@@ -682,7 +682,15 @@ export function queryFactory<
   TPageParam = unknown,
   TCrawlOptions extends Record<string, unknown> = Record<string, unknown>,
 >(
-  parent: QueryFactory<TParentParams, any, any, TParentSelected, any, any, any>,
+  parent: QueryFactory<
+    TParentParams,
+    TData,
+    any,
+    TParentSelected,
+    TPageParam,
+    any,
+    any
+  >,
   config: StandardQueryOptions<TError, TData> & {
     queryKey?: QueryKey;
     queryFn: (
@@ -949,7 +957,10 @@ export function queryFactory(
       ? {
           getNextPageParam: childConfig.getNextPageParam,
           getPreviousPageParam: childConfig.getPreviousPageParam,
-          initialPageParam: childConfig.initialPageParam,
+          initialPageParam:
+            'initialPageParam' in childConfig
+              ? childConfig.initialPageParam
+              : parentCfg.initialPageParam,
           // Fall back to parent's crawling logic when child doesn't override —
           // useful when the child only changes how pages are fetched (e.g. switching
           // to a paginator queryFn) but accumulates the same result shape.

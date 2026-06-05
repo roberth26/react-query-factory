@@ -873,7 +873,7 @@ describe('queryFactory – composition', () => {
     });
   });
 
-  it('does not inherit getNextPageParam/initialPageParam when child provides a new queryFn', () => {
+  it('does not inherit getNextPageParam when child provides a new queryFn', () => {
     const gnp = vi.fn() as any;
     const parent = queryFactory({
       queryKey: ['users'],
@@ -892,7 +892,22 @@ describe('queryFactory – composition', () => {
     const childGnp = child.infinite({ filter: 'x' }).getNextPageParam;
     expect(typeof childGnp).toBe('function');
     expect(childGnp({} as any, [], null as any, [])).toBeUndefined();
-    expect(child.infinite({ filter: 'x' }).initialPageParam).toBeUndefined();
+  });
+
+  it('inherits initialPageParam from parent when child provides a new queryFn but omits it', () => {
+    const parent = queryFactory({
+      queryKey: ['users'],
+      queryFn: async (_p: { filter: string }) =>
+        ({ users: [], nextCursor: null }) as PagedUsers,
+      getNextPageParam: p => p.nextCursor,
+      initialPageParam: null as string | null,
+    });
+    const child = queryFactory(parent, {
+      queryFn: async (_p: { filter: string }) =>
+        ({ users: [], nextCursor: null }) as PagedUsers,
+    });
+
+    expect(child.infinite({ filter: 'x' }).initialPageParam).toBeNull();
   });
 
   it('inherits shouldFetchNextPage and reduce from parent when child provides a new queryFn but omits them', async () => {

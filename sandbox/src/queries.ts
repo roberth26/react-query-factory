@@ -69,7 +69,7 @@ export const describeInstanceTypes = queryFactory({
 });
 
 export const describeInstancesViaPaginator = queryFactory(describeInstances, {
-  queryKey: ['async-iterator'],
+  queryKey: ['paginator'],
   queryFn: (params: DescribeInstancesRequest, ctx) =>
     paginateDescribeInstances(
       {
@@ -79,8 +79,7 @@ export const describeInstancesViaPaginator = queryFactory(describeInstances, {
       },
       params,
     ),
-  initialPageParam: undefined as string | undefined,
-  // shouldFetchNextPage and reduce inherited from describeInstances
+  // shouldFetchNextPage, reduce, and initialPageParam inherited from describeInstances
 });
 
 export const runningInstances = queryFactory(describeInstances, {

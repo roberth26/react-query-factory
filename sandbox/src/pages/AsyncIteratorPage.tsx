@@ -25,8 +25,10 @@ export const handle = { label: 'Async iterator', source: pageSource };
 
 const FACTORY_CODE = `\
 // Async iterator queryFn — composed from describeInstances, overrides queryFn only.
-// shouldFetchNextPage, reduce, and the crawl key are inherited from the parent.
-// The iterator manages its own cursor; getNextPageParam is not required.
+// shouldFetchNextPage, reduce, initialPageParam, and the crawl key are all inherited.
+// getNextPageParam and initialPageParam are not required for useQuery (crawl) mode —
+// the iterator manages its own cursor. Add them if you need .infinite() for
+// user-driven server pagination via useInfiniteQuery.
 const describeInstancesViaPaginator = queryFactory(describeInstances, {
   queryKey: ['async-iterator'],
   queryFn: (params: DescribeInstancesRequest, ctx) =>
@@ -34,19 +36,8 @@ const describeInstancesViaPaginator = queryFactory(describeInstances, {
       { client: ec2, pageSize: params.MaxResults, startingToken: ctx.pageParam ?? params.NextToken },
       params,
     ),
-  initialPageParam: undefined as string | undefined,
 });
-
-// Compare with the cursor-based equivalent — three extra fields required:
-const describeInstances = queryFactory({
-  queryKey: ['ec2:DescribeInstances'],
-  queryFn: (params, ctx) =>
-    ec2.send(new DescribeInstancesCommand({ ...params, NextToken: ctx.pageParam ?? params.NextToken })),
-  getNextPageParam: r => r.NextToken,                // ← not needed with async iterator
-  initialPageParam: undefined as string | undefined, // ← not needed with async iterator
-  shouldFetchNextPage: ...,
-  reduce: ...,
-});`;
+`;
 
 export async function loader() {
   const options = describeInstancesViaPaginator(
@@ -78,12 +69,14 @@ function AsyncIteratorPage() {
           factory detects it and drives the crawl with{' '}
           <code>for await...of</code>, calling <code>shouldFetchNextPage</code>{' '}
           after each yielded item to decide whether to keep going. The iterator
-          owns cursor management, so <code>getNextPageParam</code>,{' '}
-          <code>initialPageParam</code>, and token threading are not required.
-          AWS SDK v3 paginator functions —{' '}
-          <code>paginateDescribeInstances</code> and its equivalents — return
-          async iterables and plug in directly. Any other source of{' '}
-          <code>AsyncIterable&lt;TPage&gt;</code> works the same way.
+          owns cursor management, so <code>getNextPageParam</code> and{' '}
+          <code>initialPageParam</code> are not needed for <code>useQuery</code>{' '}
+          crawl mode. They are required for <code>.infinite()</code> if you want
+          user-driven server pagination via <code>useInfiniteQuery</code>. AWS
+          SDK v3 paginator functions — <code>paginateDescribeInstances</code>{' '}
+          and its equivalents — return async iterables and plug in directly. Any
+          other source of <code>AsyncIterable&lt;TPage&gt;</code> works the same
+          way.
         </p>
       </TextContent>
       <ExpandableSection headerText="Factory code" variant="container">
