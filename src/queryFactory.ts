@@ -362,6 +362,40 @@ function buildCrawlingQueryFn<TData, TPageParam, TSelected>(
   };
 }
 
+/**
+ * Wraps a queryFn for the non-crawling case (no `shouldFetchNextPage`). A plain
+ * result is returned untouched, but an `AsyncIterable` is walked to exhaustion —
+ * matching the documented behaviour ("Without `shouldFetchNextPage`, the library
+ * exhausts the iterator on every call"). With `reduce` the pages are folded;
+ * without it they're collected into an array (`TData[]`). This is what stops an
+ * async-iterable queryFn from leaking the raw iterator out as the query data.
+ */
+function buildAutoConsumeQueryFn<TData, TSelected>(
+  queryFn: (
+    params: any,
+    ctx: QueryFunctionContext<any, any>,
+  ) => TData | Promise<TData> | AsyncIterable<TData>,
+  reduce:
+    | ((accumulator: TSelected | undefined, page: TData) => TSelected)
+    | undefined,
+): (params: any, ctx: QueryFunctionContext) => Promise<unknown> {
+  return async (params, context) => {
+    const result = await queryFn(params, context as any);
+    if (!isAsyncIterable<TData>(result)) return result;
+
+    const pages: TData[] = [];
+    let acc: TSelected | undefined = undefined;
+    for await (const page of result) {
+      if (context.signal?.aborted) break;
+      pages.push(page);
+      if (reduce) acc = reduce(acc, page);
+    }
+    // Fall back to the (possibly empty) pages array so an empty stream never
+    // resolves to `undefined`, which TanStack rejects.
+    return reduce ? (acc !== undefined ? acc : pages) : pages;
+  };
+}
+
 /** Crawling queryFn for useInfiniteQuery — each virtual page is one crawl.
  *
  *  Starts from ctx.pageParam (provided by TanStack), crawls until
@@ -491,6 +525,14 @@ function buildFactory(
       )
     : undefined;
 
+  // No crawl-stop configured: still consume an async-iterable queryFn to
+  // exhaustion (plain results pass through). Without this the raw iterator would
+  // leak out as the query data.
+  const autoConsumeFn =
+    !hasCrawling && rawQueryFn !== undefined
+      ? buildAutoConsumeQueryFn(rawQueryFn, reduce)
+      : undefined;
+
   const infiniteCrawlingFn = hasInfiniteCrawling
     ? buildInfiniteCrawlingQueryFn(
         rawQueryFn!,
@@ -526,8 +568,8 @@ function buildFactory(
 
     const resolvedQueryFn = crawlingFn
       ? (ctx: QueryFunctionContext) => crawlingFn(params, crawlOptions, ctx)
-      : rawQueryFn
-        ? (ctx: QueryFunctionContext<any, any>) => rawQueryFn(params, ctx)
+      : autoConsumeFn
+        ? (ctx: QueryFunctionContext) => autoConsumeFn(params, ctx)
         : undefined;
 
     return {

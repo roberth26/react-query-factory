@@ -1639,3 +1639,66 @@ describe('queryFactory – types', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Async iterable queryFn WITHOUT shouldFetchNextPage
+//
+// Documented behaviour (README): "Without `shouldFetchNextPage`, the library
+// exhausts the iterator on every call — every page, every time." So an async
+// iterable queryFn must be walked to exhaustion even when no crawl-stop is set.
+// ---------------------------------------------------------------------------
+
+describe('async iterable queryFn without shouldFetchNextPage', () => {
+  type Reading = { param: string; value: string };
+
+  async function* readings(): AsyncIterable<Reading> {
+    yield { param: 'A', value: '1' };
+    yield { param: 'B', value: '2' };
+    yield { param: 'C', value: '3' };
+  }
+
+  it('exhausts the iterator and folds with reduce', async () => {
+    const factory = queryFactory({
+      queryKey: ['readings'],
+      queryFn: () => readings(),
+      reduce: (acc: Reading[] | undefined, page: Reading): Reading[] => [
+        ...(acc ?? []),
+        page,
+      ],
+    });
+
+    const result = await factory(undefined).queryFn!(ctx);
+
+    expect(result).toEqual([
+      { param: 'A', value: '1' },
+      { param: 'B', value: '2' },
+      { param: 'C', value: '3' },
+    ]);
+  });
+
+  it('exhausts the iterator into an array of pages when no reduce', async () => {
+    const factory = queryFactory({
+      queryKey: ['readings'],
+      queryFn: () => readings(),
+    });
+
+    const result = await factory(undefined).queryFn!(ctx);
+
+    expect(result).toEqual([
+      { param: 'A', value: '1' },
+      { param: 'B', value: '2' },
+      { param: 'C', value: '3' },
+    ]);
+  });
+
+  it('leaves a plain (non-iterable) queryFn result untouched', async () => {
+    const factory = queryFactory({
+      queryKey: ['plain'],
+      queryFn: () => Promise.resolve({ ok: true }),
+    });
+
+    const result = await factory(undefined).queryFn!(ctx);
+
+    expect(result).toEqual({ ok: true });
+  });
+});
