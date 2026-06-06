@@ -38,7 +38,7 @@ const ASYNC_ITERATOR: PatternInfo = {
   tag: 'Async iterable',
   tagColor: 'blue',
   useWhen:
-    'queryFn returns an AsyncIterable — iterator manages its own cursor, no getNextPageParam needed',
+    'queryFn returns an AsyncIterable — the iterator manages its own cursor, no getNextPageParam needed. All display patterns below still apply.',
 };
 
 const CRAWL_THEN_RENDER: PatternInfo = {
@@ -177,8 +177,37 @@ function GuidePage() {
           exitLabel="No"
           exitPattern={BASIC}
           continueLabel="Yes"
-          continueNext="Does the UI need complete data before it's useful?"
+          continueNext="How does the queryFn expose pages?"
         />
+
+        <Container
+          header={
+            <Header
+              variant="h3"
+              description="A queryFn style, not a display pattern — combine with any crawl pattern below."
+            >
+              How does the queryFn expose pages?
+            </Header>
+          }
+        >
+          <ColumnLayout columns={2} variant="text-grid">
+            <SpaceBetween size="s">
+              <Box variant="awsui-key-label">Cursor-based (default)</Box>
+              <Box color="text-body-secondary">
+                queryFn returns one page; set <code>getNextPageParam</code> and{' '}
+                <code>initialPageParam</code> — the library drives the loop.
+              </Box>
+              <Box color="text-body-secondary">
+                ↓ Choose a display pattern below
+              </Box>
+            </SpaceBetween>
+            <SpaceBetween size="s">
+              <Box variant="awsui-key-label">Async iterable</Box>
+              <PatternCard pattern={ASYNC_ITERATOR} />
+            </SpaceBetween>
+          </ColumnLayout>
+        </Container>
+
         <DecisionStep
           question="Does the UI need complete data before it's useful?"
           exitLabel="Yes"
@@ -201,19 +230,6 @@ function GuidePage() {
           rightPattern={CONDITIONAL_CRAWL}
         />
       </SpaceBetween>
-
-      <Container
-        header={
-          <Header
-            variant="h2"
-            description="Drop-in alternative when the SDK provides a paginator function."
-          >
-            Alternative API
-          </Header>
-        }
-      >
-        <PatternCard pattern={ASYNC_ITERATOR} />
-      </Container>
 
       <Container
         header={

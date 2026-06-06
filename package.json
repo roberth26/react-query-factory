@@ -1,6 +1,6 @@
 {
   "name": "@robohall/react-query-factory",
-  "version": "2.1.6",
+  "version": "2.2.0",
   "description": "A factory abstraction for TanStack Query (React Query) with composable keys, crawling support, and automatic infinite query generation",
   "author": "Robert Hall",
   "license": "MIT",

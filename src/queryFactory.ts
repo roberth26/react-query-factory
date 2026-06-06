@@ -168,6 +168,20 @@ export interface QueryFactory<
   >;
 }
 
+// ─── Helper types ────────────────────────────────────────────────────────────
+
+/** Extracts the params type from a factory — the first argument of a factory call. */
+export type FactoryParams<F> =
+  F extends QueryFactory<infer TParams, any, any, any, any, any, any>
+    ? TParams
+    : never;
+
+/** Extracts the crawl options type from a factory — the second argument of a factory call. */
+export type FactoryCrawlOptions<F> =
+  F extends QueryFactory<any, any, any, any, any, infer TCrawlOptions, any>
+    ? TCrawlOptions
+    : never;
+
 // ─── Internal ────────────────────────────────────────────────────────────────
 
 const FACTORY_CONFIG = Symbol('factoryConfig');

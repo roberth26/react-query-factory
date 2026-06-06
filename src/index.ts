@@ -5,4 +5,6 @@ export type {
   ResolvedQueryOptions,
   ResolvedInfiniteOptions,
   StandardQueryOptions,
+  FactoryParams,
+  FactoryCrawlOptions,
 } from './queryFactory.js';

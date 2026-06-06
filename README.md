@@ -218,6 +218,23 @@ queryClient.invalidateQueries(describeInstances({ MaxResults: 20 }));
 
 ---
 
+## Which pattern?
+
+| Pattern                   | Use when                                                                                         |
+| ------------------------- | ------------------------------------------------------------------------------------------------ |
+| Basic                     | API returns a single, non-paginated response                                                     |
+| Async iterator            | `queryFn` returns an `AsyncIterable` (e.g. an AWS SDK v3 paginator) — no cursor wiring required  |
+| Crawl-then-render         | Paginated API; UI needs all data before it's useful (dropdowns, counts, totals)                  |
+| Render-while-crawling     | Paginated API; UI can show partial results as pages arrive                                       |
+| On-demand (`.infinite()`) | Paginated API; user clicks "load more" or navigates pages                                        |
+| Client-side search        | Paginated API; find a subset without server-side filtering — stop crawling when condition is met |
+
+**Async iterator** is a `queryFn` style, not a display pattern — combine it with any crawl pattern above when your SDK provides a paginator function.
+
+**Composition** and **Invalidation** apply alongside any pattern: use composition when multiple views share one cache entry, invalidation after a mutation changes server state.
+
+---
+
 ## Installation
 
 ```bash
@@ -247,11 +264,25 @@ const { data: partial } = useQuery(
 );
 ```
 
+### Error behavior
+
+If any page fetch throws, the error propagates immediately — there is no per-page retry or partial-result fallback. TanStack Query receives the error exactly as it would from a single-page `queryFn` and applies its normal `retry`, `throwOnError`, and error-state semantics.
+
+When TanStack retries, the crawl starts over from `initialPageParam`. There is no resume-from-page-N.
+
+The crawl also respects the abort signal between pages. When the signal fires (component unmounts, query superseded by a newer one), the loop exits after the current in-flight page completes. TanStack does not commit the partial result.
+
 ---
 
 ## Async iterator queryFns
 
-When `queryFn` returns an `AsyncIterable`, the library detects it automatically and drives the crawl with `for await...of` instead of the cursor loop. This means `getNextPageParam` and `initialPageParam` are not required — the iterator manages its own cursor. AWS SDK v3 paginator functions (`paginateDescribeInstances`, etc.) are a common source of async iterables:
+When `queryFn` returns an `AsyncIterable`, the library walks it with `for await...of` instead of calling `queryFn` repeatedly with successive `pageParam` values. The cursor lives inside the iterator rather than in `getNextPageParam` — that's the only meaningful difference from a cursor-based factory. `shouldFetchNextPage`, `reduce`, `crawlOptions`, and `.infinite()` all work identically.
+
+One caveat for `.infinite()`: `getNextPageParam` is still required, but its role shifts — instead of wiring each individual API page, it records where the next batch should start when the user loads more.
+
+Without `shouldFetchNextPage`, the library exhausts the iterator on every call — every page, every time.
+
+Any source of `AsyncIterable<TPage>` works:
 
 ```typescript
 import { paginateDescribeInstances } from '@aws-sdk/client-ec2';
@@ -273,9 +304,7 @@ const describeInstances = queryFactory({
 });
 ```
 
-`shouldFetchNextPage` still controls early stopping — the library calls `next()` on the iterator only when it returns `true`. Any source of `AsyncIterable<TPage>` works, not just AWS SDK paginators.
-
-For `.infinite()` mode, `getNextPageParam` is required to capture the next virtual page's starting cursor from the last yielded item. AWS SDK v3 paginators accept a `startingToken` to resume from a specific position — wire `ctx.pageParam` to it:
+For `.infinite()`, wire `ctx.pageParam` to the iterator's resume parameter so each batch starts from the right position:
 
 ```typescript
 const describeInstances = queryFactory({
@@ -388,6 +417,24 @@ The `.infinite()` key includes an `'infinite'` segment to keep it separate from 
 
 ---
 
+## Performance
+
+TanStack Query's default `staleTime` is `0` — data is considered stale immediately, so a background refetch fires on every mount, window focus, and reconnect. For a single-page query that's one API call; for a crawling factory it's the full crawl repeated. Set `staleTime` in the factory config to match how often the underlying data actually changes:
+
+```typescript
+const describeInstances = queryFactory({
+  queryKey: ['ec2:DescribeInstances'],
+  staleTime: 60_000, // re-crawl at most once per minute
+  // ...
+});
+```
+
+Child factories inherit `staleTime` and all other standard options from the parent, so setting it once on the root factory covers every derived view.
+
+When freshness requirements allow it, `refetchOnWindowFocus` and `refetchOnMount` can be set to `false` on the factory for the same reason — each is a potential full re-crawl.
+
+---
+
 ## Public API
 
 ### `queryFactory(config)`
@@ -439,6 +486,26 @@ Return type of `factory(params)`. Pass directly to `useQuery()`. Contains an `in
 ### `ResolvedInfiniteOptions`
 
 Return type of `factory.infinite(params)`. Pass directly to `useInfiniteQuery()`. The `select` field is typed to `InfiniteData<TData, TPageParam>`, which prevents accidental use with `useQuery`.
+
+### `FactoryParams<F>`
+
+Extracts the params type from a factory — the first argument of a factory call. Useful for typing component props that accept factory params.
+
+```typescript
+import type { FactoryParams } from '@robohall/react-query-factory';
+
+type Params = FactoryParams<typeof describeInstances>; // → DescribeInstancesRequest
+```
+
+### `FactoryCrawlOptions<F>`
+
+Extracts the crawl options type from a factory — the second argument of a factory call. Useful for typing helpers or components that accept crawl options.
+
+```typescript
+import type { FactoryCrawlOptions } from '@robohall/react-query-factory';
+
+type CrawlOpts = FactoryCrawlOptions<typeof describeInstances>; // → { minResults?: number }
+```
 
 ---
 
