@@ -50,18 +50,24 @@ export type QueryFactoryConfig<
   TSelected = TData,
   TPageParam = unknown,
   TCrawlOptions extends Record<string, unknown> = Record<string, unknown>,
+  TDeps = void,
 > = StandardQueryOptions<TError, TData> & {
   /** Namespace segments. Params are appended as the final element at call time,
    *  giving a full key of [...namespace, 'infinite'?, params, crawlOptions?]. */
   queryKey: QueryKey;
+  /** The optional third argument is a bag of non-serializable runtime dependencies
+   *  (an API client, a token, a translator…). It is supplied at the call site via
+   *  `factory(params).inject(deps)` and is deliberately NEVER part of the queryKey.
+   *  Declaring it makes `.inject()` required before the options can reach useQuery. */
   queryFn?: (
     params: TParams,
     context: QueryFunctionContext<
       QueryKey,
       [unknown] extends [TPageParam] ? never : TPageParam
     >,
+    deps: TDeps,
   ) => TData | Promise<TData>;
-  select?: (data: TData) => TSelected;
+  select?: (data: TData, deps: TDeps) => TSelected;
   /** TanStack v5 generic order: GetNextPageParamFunction<TPageParam, TData> */
   getNextPageParam?: GetNextPageParamFunction<TPageParam, TData>;
   /** Drives TPageParam inference so ctx.pageParam in queryFn is typed as TPageParam.
@@ -130,6 +136,38 @@ export type ResolvedInfiniteOptions<
   initialPageParam: TPageParam;
 };
 
+declare const INJECTION_REQUIRED: unique symbol;
+
+/**
+ * What `factory(params)` / `factory.infinite(params)` return when the factory's
+ * `queryFn`/`select` declare a non-serializable dependency bag (the third `queryFn`
+ * argument, `TDeps`).
+ *
+ * It carries the real `queryKey` — so it can still be handed to
+ * `invalidateQueries` and other filter APIs without supplying deps — but its
+ * `queryFn` is branded with a type that is NOT assignable to TanStack's
+ * `QueryFunction`. That makes it a compile error to pass directly to
+ * `useQuery`/`useInfiniteQuery`: the only way to obtain usable options is to call
+ * `.inject(deps)`, which returns the real `TResolved`.
+ *
+ * `deps` is deliberately never part of the query key.
+ */
+export interface PendingInjection<TDeps, TResolved> {
+  queryKey: QueryKey;
+  queryFn: {
+    readonly [INJECTION_REQUIRED]: 'Call .inject({ ...deps }) before passing this to useQuery/useInfiniteQuery';
+  };
+  inject(deps: TDeps): TResolved;
+}
+
+/**
+ * Resolves to `TResolved` when the factory declares no dependencies (`TDeps` is
+ * `void`), or to a `PendingInjection` that forces `.inject(deps)` when it does.
+ */
+export type WithInjection<TDeps, TResolved> = [TDeps] extends [void]
+  ? TResolved
+  : PendingInjection<TDeps, TResolved>;
+
 /**
  * A callable factory produced by `queryFactory()`.
  *
@@ -143,6 +181,10 @@ export type ResolvedInfiniteOptions<
  * `params` is always optional. Calling with no arguments produces just the
  * namespace key, which is useful for broad cache invalidation:
  * `queryClient.invalidateQueries(factory())`
+ *
+ * When `TDeps` is non-`void` (the `queryFn` declares a third argument), both calls
+ * return a `PendingInjection` and the caller must `.inject(deps)` before the
+ * options can reach `useQuery`/`useInfiniteQuery`.
  */
 export interface QueryFactory<
   TParams = void,
@@ -152,19 +194,23 @@ export interface QueryFactory<
   TPageParam = unknown,
   TCrawlOptions extends Record<string, unknown> = Record<string, unknown>,
   THasReduce extends boolean = boolean,
+  TDeps = void,
 > {
   (
     params?: TParams,
     crawlOptions?: TCrawlOptions,
-  ): ResolvedQueryOptions<TData, TError, TSelected>;
+  ): WithInjection<TDeps, ResolvedQueryOptions<TData, TError, TSelected>>;
   infinite(
     params?: TParams,
     crawlOptions?: TCrawlOptions,
-  ): ResolvedInfiniteOptions<
-    TData,
-    TError,
-    TPageParam,
-    InfiniteData<TSelected, TPageParam>
+  ): WithInjection<
+    TDeps,
+    ResolvedInfiniteOptions<
+      TData,
+      TError,
+      TPageParam,
+      InfiniteData<TSelected, TPageParam>
+    >
   >;
 }
 
@@ -182,6 +228,12 @@ export type FactoryCrawlOptions<F> =
     ? TCrawlOptions
     : never;
 
+/** Extracts the injected-dependencies type from a factory — the argument to `.inject()`. */
+export type FactoryDeps<F> =
+  F extends QueryFactory<any, any, any, any, any, any, any, infer TDeps>
+    ? TDeps
+    : never;
+
 // ─── Internal ────────────────────────────────────────────────────────────────
 
 const FACTORY_CONFIG = Symbol('factoryConfig');
@@ -192,8 +244,9 @@ interface NormalizedConfig {
   queryFn?: (
     params: unknown,
     ctx: QueryFunctionContext<QueryKey, unknown>,
+    deps?: unknown,
   ) => unknown;
-  select?: (data: any) => any;
+  select?: (data: any, deps: any) => any;
   getNextPageParam?: GetNextPageParamFunction<any, any>;
   getPreviousPageParam?: GetPreviousPageParamFunction<any, any>;
   initialPageParam?: any;
@@ -220,6 +273,22 @@ function isAsyncIterable<T>(value: unknown): value is AsyncIterable<T> {
   return (
     value != null && typeof (value as any)[Symbol.asyncIterator] === 'function'
   );
+}
+
+/** Invokes a raw queryFn, passing the injected deps only when present. Omitting the
+ *  third argument when there are no deps keeps the call shape identical to a plain
+ *  `queryFn(params, ctx)` for the (common) no-injection case. */
+function invokeQueryFn<TData>(
+  queryFn: (
+    params: any,
+    ctx: QueryFunctionContext<any, any>,
+    deps?: any,
+  ) => TData | Promise<TData> | AsyncIterable<TData>,
+  params: any,
+  ctx: QueryFunctionContext<any, any>,
+  deps: unknown,
+): TData | Promise<TData> | AsyncIterable<TData> {
+  return deps === undefined ? queryFn(params, ctx) : queryFn(params, ctx, deps);
 }
 
 /** Appends params and any crawl options to the key. */
@@ -270,11 +339,12 @@ function wrapGetNextPageParam<TData, TPageParam, TSelected>(
     crawlOptions: Record<string, unknown>,
   ) => boolean,
   crawlOptions: Record<string, unknown>,
-  select?: (data: TData) => TSelected,
+  select: ((data: TData, deps: unknown) => TSelected) | undefined,
+  deps: unknown,
 ): GetNextPageParamFunction<TPageParam, TData> {
   return (lastPage, allPages, lastPageParam, allPageParams) => {
     const combined = select
-      ? select(lastPage)
+      ? select(lastPage, deps)
       : (lastPage as unknown as TSelected);
     if (!shouldFetchNextPage(combined, crawlOptions)) return undefined;
     return getNextPageParam(lastPage, allPages, lastPageParam, allPageParams);
@@ -288,6 +358,7 @@ function buildCrawlingQueryFn<TData, TPageParam, TSelected>(
   queryFn: (
     params: any,
     ctx: QueryFunctionContext<any, any>,
+    deps?: any,
   ) => TData | Promise<TData> | AsyncIterable<TData>,
   getNextPageParam: GetNextPageParamFunction<TPageParam, TData> | undefined,
   initialPageParam: TPageParam,
@@ -301,9 +372,10 @@ function buildCrawlingQueryFn<TData, TPageParam, TSelected>(
 ): (
   params: any,
   crawlOptions: Record<string, unknown>,
+  deps: unknown,
   ctx: QueryFunctionContext,
 ) => Promise<TSelected | TData[]> {
-  return async (params, crawlOptions, context) => {
+  return async (params, crawlOptions, deps, context) => {
     // Pre-flight mirrors the original signal check that preceded every queryFn call.
     if (context.signal?.aborted) {
       if (reduce) throw new DOMException('Aborted', 'AbortError');
@@ -311,7 +383,7 @@ function buildCrawlingQueryFn<TData, TPageParam, TSelected>(
     }
 
     const ctx = { ...context, pageParam: initialPageParam as unknown };
-    const initialResult = queryFn(params, ctx as any);
+    const initialResult = invokeQueryFn(queryFn, params, ctx as any, deps);
 
     // ── Async iterable path ──────────────────────────────────────────────
     if (isAsyncIterable<TData>(initialResult)) {
@@ -351,7 +423,12 @@ function buildCrawlingQueryFn<TData, TPageParam, TSelected>(
 
       currentParam = nextParam as TPageParam;
       ctx.pageParam = currentParam;
-      page = await (queryFn(params, ctx as any) as Promise<TData>);
+      page = await (invokeQueryFn(
+        queryFn,
+        params,
+        ctx as any,
+        deps,
+      ) as Promise<TData>);
     }
 
     if (reduce) {
@@ -374,13 +451,14 @@ function buildAutoConsumeQueryFn<TData, TSelected>(
   queryFn: (
     params: any,
     ctx: QueryFunctionContext<any, any>,
+    deps?: any,
   ) => TData | Promise<TData> | AsyncIterable<TData>,
   reduce:
     | ((accumulator: TSelected | undefined, page: TData) => TSelected)
     | undefined,
-): (params: any, ctx: QueryFunctionContext) => Promise<unknown> {
-  return async (params, context) => {
-    const result = await queryFn(params, context as any);
+): (params: any, deps: unknown, ctx: QueryFunctionContext) => Promise<unknown> {
+  return async (params, deps, context) => {
+    const result = await invokeQueryFn(queryFn, params, context as any, deps);
     if (!isAsyncIterable<TData>(result)) return result;
 
     const pages: TData[] = [];
@@ -409,6 +487,7 @@ function buildInfiniteCrawlingQueryFn<TData, TPageParam, TSelected>(
   queryFn: (
     params: any,
     ctx: QueryFunctionContext<any, any>,
+    deps?: any,
   ) => TData | Promise<TData> | AsyncIterable<TData>,
   getNextPageParam: GetNextPageParamFunction<TPageParam, TData>,
   shouldFetchNextPage: (
@@ -419,14 +498,15 @@ function buildInfiniteCrawlingQueryFn<TData, TPageParam, TSelected>(
 ): (
   params: any,
   crawlOptions: Record<string, unknown>,
+  deps: unknown,
   ctx: QueryFunctionContext<any, TPageParam>,
 ) => Promise<CrawlEnvelope<TSelected, TPageParam>> {
-  return async (params, crawlOptions, context) => {
+  return async (params, crawlOptions, deps, context) => {
     if (context.signal?.aborted)
       throw new DOMException('Aborted', 'AbortError');
 
     const ctx = { ...context, pageParam: context.pageParam as unknown };
-    const initialResult = queryFn(params, ctx as any);
+    const initialResult = invokeQueryFn(queryFn, params, ctx as any, deps);
 
     // ── Async iterable path ──────────────────────────────────────────────
     if (isAsyncIterable<TData>(initialResult)) {
@@ -475,7 +555,12 @@ function buildInfiniteCrawlingQueryFn<TData, TPageParam, TSelected>(
 
       currentParam = nextParam as TPageParam;
       ctx.pageParam = currentParam;
-      page = await (queryFn(params, ctx as any) as Promise<TData>);
+      page = await (invokeQueryFn(
+        queryFn,
+        params,
+        ctx as any,
+        deps,
+      ) as Promise<TData>);
     }
 
     if (acc === undefined) throw new DOMException('Aborted', 'AbortError');
@@ -542,20 +627,15 @@ function buildFactory(
       )
     : undefined;
 
-  const envelopeSelect = infiniteCrawlingFn
-    ? (data: { pages: CrawlEnvelope<any, any>[]; pageParams: any[] }) => ({
-        ...data,
-        pages: data.pages.map(e => (select ? select(e.data) : e.data)),
-      })
-    : undefined;
-
-  const infiniteSelect =
-    !infiniteCrawlingFn && select
-      ? (data: { pages: unknown[]; pageParams: unknown[] }) => ({
-          ...data,
-          pages: data.pages.map(select),
-        })
-      : undefined;
+  // Binds the (data) => select(data, deps) shape TanStack expects. When there are
+  // no injected deps the user's select is passed through untouched, preserving its
+  // identity (callers may rely on referential stability) and the no-injection path.
+  const bindSelect = (deps: unknown) =>
+    select === undefined
+      ? undefined
+      : deps === undefined
+        ? select
+        : (data: any) => select(data, deps);
 
   const factory = function (
     params: any,
@@ -566,19 +646,28 @@ function buildFactory(
         ? buildChildKey(parentKey, ownSegments, params, crawlOptions)
         : resolveKey(namespace, params, crawlOptions);
 
-    const resolvedQueryFn = crawlingFn
-      ? (ctx: QueryFunctionContext) => crawlingFn(params, crawlOptions, ctx)
-      : autoConsumeFn
-        ? (ctx: QueryFunctionContext) => autoConsumeFn(params, ctx)
-        : undefined;
+    // `deps` is supplied per-call via `.inject(deps)`; the bare call uses `undefined`.
+    // It is closed into queryFn/select here and NEVER added to the query key.
+    const make = (deps: unknown): any => {
+      const resolvedQueryFn = crawlingFn
+        ? (ctx: QueryFunctionContext) =>
+            crawlingFn(params, crawlOptions, deps, ctx)
+        : autoConsumeFn
+          ? (ctx: QueryFunctionContext) => autoConsumeFn(params, deps, ctx)
+          : undefined;
+      const boundSelect = bindSelect(deps);
 
-    return {
-      ...standardOptions,
-      queryKey,
-      ...(resolvedQueryFn !== undefined && { queryFn: resolvedQueryFn }),
-      ...(select !== undefined && { select }),
-      [FACTORY_CONFIG]: cfg,
+      return {
+        ...standardOptions,
+        queryKey,
+        ...(resolvedQueryFn !== undefined && { queryFn: resolvedQueryFn }),
+        ...(boundSelect !== undefined && { select: boundSelect }),
+        inject: (injected: unknown) => make(injected),
+        [FACTORY_CONFIG]: cfg,
+      };
     };
+
+    return make(undefined);
   } as unknown as QueryFactory<any, any, any, any, any, any>;
 
   factory.infinite = function (
@@ -590,48 +679,73 @@ function buildFactory(
         ? buildChildKey(parentKey, ownSegments, params, crawlOptions, true)
         : resolveKey(infiniteNamespace, params, crawlOptions);
 
-    if (infiniteCrawlingFn) {
-      // Each virtual page is a crawl. The envelope carries nextBatchParam so
-      // TanStack knows where the next virtual page starts.
+    const make = (
+      deps: unknown,
+    ): ResolvedInfiniteOptions<any, any, any, any> => {
+      if (infiniteCrawlingFn) {
+        // Each virtual page is a crawl. The envelope carries nextBatchParam so
+        // TanStack knows where the next virtual page starts.
+        return {
+          ...standardOptions,
+          queryKey,
+          queryFn: (ctx: QueryFunctionContext<any, any>) =>
+            infiniteCrawlingFn(params, crawlOptions, deps, ctx),
+          getNextPageParam: getEnvelopeNextPageParam,
+          initialPageParam,
+          select: (data: {
+            pages: CrawlEnvelope<any, any>[];
+            pageParams: any[];
+          }) => ({
+            ...data,
+            pages: data.pages.map(e =>
+              select ? select(e.data, deps) : e.data,
+            ),
+          }),
+          ...(getPreviousPageParam !== undefined && { getPreviousPageParam }),
+          inject: (injected: unknown) => make(injected),
+          [FACTORY_CONFIG]: cfg,
+        } as ResolvedInfiniteOptions<any, any, any, any>;
+      }
+
+      const boundQueryFn = rawQueryFn
+        ? (ctx: QueryFunctionContext<any, any>) =>
+            invokeQueryFn(rawQueryFn, params, ctx, deps)
+        : undefined;
+
+      const infiniteSelect = select
+        ? (data: { pages: unknown[]; pageParams: unknown[] }) => ({
+            ...data,
+            pages: data.pages.map(p => select(p, deps)),
+          })
+        : undefined;
+
+      // Non-crawling infinite: single API call per virtual page (original behaviour).
+      // Always provide getNextPageParam; fall back to () => undefined (no next page) if absent.
+      const infiniteGetNextPageParam =
+        getNextPageParam && shouldFetchNextPage
+          ? wrapGetNextPageParam(
+              getNextPageParam,
+              shouldFetchNextPage,
+              crawlOptions,
+              select,
+              deps,
+            )
+          : (getNextPageParam ?? noNextPage);
+
       return {
         ...standardOptions,
         queryKey,
-        queryFn: (ctx: QueryFunctionContext<any, any>) =>
-          infiniteCrawlingFn(params, crawlOptions, ctx),
-        getNextPageParam: getEnvelopeNextPageParam,
-        initialPageParam,
-        select: envelopeSelect,
+        ...(boundQueryFn !== undefined && { queryFn: boundQueryFn }),
+        ...(infiniteSelect !== undefined && { select: infiniteSelect }),
+        getNextPageParam: infiniteGetNextPageParam,
         ...(getPreviousPageParam !== undefined && { getPreviousPageParam }),
+        ...(initialPageParam !== undefined && { initialPageParam }),
+        inject: (injected: unknown) => make(injected),
         [FACTORY_CONFIG]: cfg,
       } as ResolvedInfiniteOptions<any, any, any, any>;
-    }
+    };
 
-    const boundQueryFn = rawQueryFn
-      ? (ctx: QueryFunctionContext<any, any>) => rawQueryFn(params, ctx)
-      : undefined;
-
-    // Non-crawling infinite: single API call per virtual page (original behaviour).
-    // Always provide getNextPageParam; fall back to () => undefined (no next page) if absent.
-    const infiniteGetNextPageParam =
-      getNextPageParam && shouldFetchNextPage
-        ? wrapGetNextPageParam(
-            getNextPageParam,
-            shouldFetchNextPage,
-            crawlOptions,
-            select,
-          )
-        : (getNextPageParam ?? noNextPage);
-
-    return {
-      ...standardOptions,
-      queryKey,
-      ...(boundQueryFn !== undefined && { queryFn: boundQueryFn }),
-      ...(infiniteSelect !== undefined && { select: infiniteSelect }),
-      getNextPageParam: infiniteGetNextPageParam,
-      ...(getPreviousPageParam !== undefined && { getPreviousPageParam }),
-      ...(initialPageParam !== undefined && { initialPageParam }),
-      [FACTORY_CONFIG]: cfg,
-    } as ResolvedInfiniteOptions<any, any, any, any>;
+    return make(undefined);
   };
 
   return factory;
@@ -651,6 +765,7 @@ export function queryFactory<
   TSelected = TData,
   TPageParam = unknown,
   TCrawlOptions extends Record<string, unknown> = Record<string, unknown>,
+  TDeps = void,
 >(
   config: StandardQueryOptions<TError, TData> & {
     queryKey: QueryKey;
@@ -660,8 +775,9 @@ export function queryFactory<
         QueryKey,
         [unknown] extends [TPageParam] ? never : TPageParam
       >,
+      deps: TDeps,
     ) => TData | Promise<TData>;
-    select?: (data: TData) => TSelected;
+    select?: (data: TData, deps: TDeps) => TSelected;
     getNextPageParam?: GetNextPageParamFunction<TPageParam, TData>;
     initialPageParam?: TPageParam;
     getPreviousPageParam?: GetPreviousPageParamFunction<TPageParam, TData>;
@@ -678,7 +794,8 @@ export function queryFactory<
   TSelected,
   TPageParam,
   TCrawlOptions,
-  true
+  true,
+  TDeps
 >;
 
 /**
@@ -698,6 +815,7 @@ export function queryFactory<
   TSelected = TData,
   TPageParam = unknown,
   TCrawlOptions extends Record<string, unknown> = Record<string, unknown>,
+  TDeps = void,
 >(
   config: QueryFactoryConfig<
     TParams,
@@ -705,7 +823,8 @@ export function queryFactory<
     TError,
     TSelected,
     TPageParam,
-    TCrawlOptions
+    TCrawlOptions,
+    TDeps
   >,
 ): QueryFactory<
   TParams,
@@ -714,7 +833,8 @@ export function queryFactory<
   TSelected,
   TPageParam,
   TCrawlOptions,
-  false
+  false,
+  TDeps
 >;
 
 /**
@@ -731,6 +851,7 @@ export function queryFactory<
   TParentParams = TChildParams,
   TPageParam = unknown,
   TCrawlOptions extends Record<string, unknown> = Record<string, unknown>,
+  TDeps = void,
 >(
   parent: QueryFactory<
     TParentParams,
@@ -738,6 +859,7 @@ export function queryFactory<
     any,
     TParentSelected,
     TPageParam,
+    any,
     any,
     any
   >,
@@ -749,8 +871,9 @@ export function queryFactory<
         QueryKey,
         [unknown] extends [TPageParam] ? never : TPageParam
       >,
+      deps: TDeps,
     ) => AsyncIterable<TData>;
-    select?: (data: TData) => TChildSelected;
+    select?: (data: TData, deps: TDeps) => TChildSelected;
     reduce?: (
       accumulator: TChildSelected | undefined,
       page: TData,
@@ -770,7 +893,8 @@ export function queryFactory<
   TChildSelected,
   TPageParam,
   TCrawlOptions,
-  boolean
+  boolean,
+  TDeps
 >;
 
 /**
@@ -788,8 +912,9 @@ export function queryFactory<
   TParentParams = TChildParams,
   TPageParam = unknown,
   TCrawlOptions extends Record<string, unknown> = Record<string, unknown>,
+  TDeps = void,
 >(
-  parent: QueryFactory<TParentParams, any, any, any, any, any, any>,
+  parent: QueryFactory<TParentParams, any, any, any, any, any, any, any>,
   config: Omit<
     QueryFactoryConfig<
       TChildParams,
@@ -797,7 +922,8 @@ export function queryFactory<
       TError,
       TChildSelected,
       TPageParam,
-      TCrawlOptions
+      TCrawlOptions,
+      TDeps
     >,
     'queryKey' | 'queryFn'
   > & {
@@ -808,7 +934,9 @@ export function queryFactory<
         TData,
         TError,
         TChildSelected,
-        TPageParam
+        TPageParam,
+        TCrawlOptions,
+        TDeps
       >['queryFn']
     >;
   },
@@ -819,7 +947,8 @@ export function queryFactory<
   TChildSelected,
   TPageParam,
   TCrawlOptions,
-  boolean
+  boolean,
+  TDeps
 >;
 
 /**
@@ -840,6 +969,7 @@ export function queryFactory<
   TParentCrawlOptions extends Record<string, unknown> = Record<string, unknown>,
   TChildCrawlOptions extends Record<string, unknown> = TParentCrawlOptions,
   TParentHasReduce extends boolean = boolean,
+  TParentDeps = void,
 >(
   parent: QueryFactory<
     TParentParams,
@@ -848,12 +978,13 @@ export function queryFactory<
     TParentSelected,
     TPageParam,
     TParentCrawlOptions,
-    TParentHasReduce
+    TParentHasReduce,
+    TParentDeps
   >,
   config: StandardQueryOptions<TError, TData> & {
     queryKey?: QueryKey;
     queryFn?: never;
-    select?: (data: TParentSelected) => TChildSelected;
+    select?: (data: TParentSelected, deps: TParentDeps) => TChildSelected;
     getNextPageParam?: GetNextPageParamFunction<TPageParam, TData>;
     initialPageParam?: TPageParam;
     getPreviousPageParam?: GetPreviousPageParamFunction<TPageParam, TData>;
@@ -875,7 +1006,8 @@ export function queryFactory<
   TChildSelected,
   TPageParam,
   TChildCrawlOptions,
-  TParentHasReduce
+  TParentHasReduce,
+  TParentDeps
 >;
 
 /**
@@ -891,6 +1023,7 @@ export function queryFactory<
   TSelected = TData,
   TPageParam = unknown,
   TCrawlOptions extends Record<string, unknown> = Record<string, unknown>,
+  TDeps = void,
 >(
   config: StandardQueryOptions<TError, TData> & {
     queryKey: QueryKey;
@@ -900,8 +1033,9 @@ export function queryFactory<
         QueryKey,
         [unknown] extends [TPageParam] ? never : TPageParam
       >,
+      deps: TDeps,
     ) => AsyncIterable<TData>;
-    select?: (data: TData) => TSelected;
+    select?: (data: TData, deps: TDeps) => TSelected;
     getNextPageParam?: GetNextPageParamFunction<TPageParam, TData>;
     initialPageParam?: TPageParam;
     getPreviousPageParam?: GetPreviousPageParamFunction<TPageParam, TData>;
@@ -918,7 +1052,8 @@ export function queryFactory<
   TSelected,
   TPageParam,
   TCrawlOptions,
-  true
+  true,
+  TDeps
 >;
 
 /**
@@ -932,6 +1067,7 @@ export function queryFactory<
   TSelected = TData,
   TPageParam = unknown,
   TCrawlOptions extends Record<string, unknown> = Record<string, unknown>,
+  TDeps = void,
 >(
   config: StandardQueryOptions<TError, TData> & {
     queryKey: QueryKey;
@@ -941,8 +1077,9 @@ export function queryFactory<
         QueryKey,
         [unknown] extends [TPageParam] ? never : TPageParam
       >,
+      deps: TDeps,
     ) => AsyncIterable<TData>;
-    select?: (data: TData) => TSelected;
+    select?: (data: TData, deps: TDeps) => TSelected;
     getNextPageParam?: GetNextPageParamFunction<TPageParam, TData>;
     initialPageParam?: TPageParam;
     getPreviousPageParam?: GetPreviousPageParamFunction<TPageParam, TData>;
@@ -959,16 +1096,19 @@ export function queryFactory<
   TSelected,
   TPageParam,
   TCrawlOptions,
-  false
+  false,
+  TDeps
 >;
 
 // ─── Implementation ──────────────────────────────────────────────────────────
 
 export function queryFactory(
   configOrParent:
-    | QueryFactoryConfig<any, any, any, any, any, any>
-    | QueryFactory<any, any, any, any, any, any, any>,
-  childConfig?: Partial<QueryFactoryConfig<any, any, any, any, any, any>> & {
+    | QueryFactoryConfig<any, any, any, any, any, any, any>
+    | QueryFactory<any, any, any, any, any, any, any, any>,
+  childConfig?: Partial<
+    QueryFactoryConfig<any, any, any, any, any, any, any>
+  > & {
     queryKey?: QueryKey;
   },
 ): QueryFactory<any, any, any, any, any, any, any> {
@@ -992,13 +1132,14 @@ export function queryFactory(
       ...childNamespace,
     ];
 
-    let resolvedSelect: ((data: any) => any) | undefined;
+    let resolvedSelect: ((data: any, deps: any) => any) | undefined;
     if (hasNewQueryFn) {
       resolvedSelect = childConfig.select;
     } else if (childConfig.select && parentCfg.select) {
       const p = parentCfg.select;
       const c = childConfig.select;
-      resolvedSelect = (data: any) => c(p(data));
+      // Injected deps reach both the parent and child select transforms.
+      resolvedSelect = (data: any, deps: any) => c(p(data, deps), deps);
     } else {
       resolvedSelect = childConfig.select ?? parentCfg.select;
     }
@@ -1067,7 +1208,7 @@ export function queryFactory(
     shouldFetchNextPage,
     reduce,
     ...standardOptions
-  } = configOrParent as QueryFactoryConfig<any, any, any, any, any, any>;
+  } = configOrParent as QueryFactoryConfig<any, any, any, any, any, any, any>;
 
   return buildFactory({
     queryKey,

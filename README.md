@@ -417,6 +417,54 @@ The `.infinite()` key includes an `'infinite'` segment to keep it separate from 
 
 ---
 
+## Dependency injection
+
+By default, whatever you pass as `params` is appended to the query key. That's exactly what you want for serializable inputs — but some `queryFn` inputs are **not** serializable and must not be in the key: an API client from React context, an auth token, a translator, a per-tenant SDK instance. Putting them in the key leaks them into the cache and devtools, and busts the cache every time they change identity.
+
+Declare such inputs as an optional **third argument** to `queryFn` — a `deps` bag. It is supplied at the call site via `.inject(deps)`, is passed to `queryFn` (and `select`), and is **never** added to the query key:
+
+```typescript
+const describeInstances = queryFactory({
+  queryKey: ['ec2:DescribeInstances'],
+  queryFn: (
+    params: DescribeInstancesCommandInput,
+    ctx,
+    deps: { client: EC2Client }, // ← non-serializable, never keyed
+  ) =>
+    deps.client.send(
+      new DescribeInstancesCommand({ ...params, NextToken: ctx.pageParam }),
+      { abortSignal: ctx.signal },
+    ),
+});
+
+function InstancesTable() {
+  const client = useContext(EC2ClientContext); // runtime dependency
+  const { data } = useQuery(
+    describeInstances({ MaxResults: 20 }).inject({ client }),
+  );
+  // query key is ['ec2:DescribeInstances', { MaxResults: 20 }] — no client in it
+}
+```
+
+When a factory declares deps, `.inject()` is **required by the type system** — the bare call returns a `PendingInjection` that is a compile error to pass to `useQuery`/`useInfiniteQuery`:
+
+```typescript
+useQuery(describeInstances({ MaxResults: 20 })); // ❌ Type error — call .inject({ client })
+useQuery(describeInstances({ MaxResults: 20 }).inject({ client })); // ✅
+```
+
+A factory that declares **no** deps is unaffected — its calls return options directly and there is no `.inject` to call. Nothing about the common path changes.
+
+Key points:
+
+- **`deps` never enters the query key** — that's the whole purpose. If a value should be part of cache identity, pass it as `params`, not `deps`.
+- **One shared bag.** `queryFn` and `select` receive the _same_ `deps`; their `deps` types must agree.
+- **Invalidation needs no deps.** The pending object still exposes the real `queryKey`, so `queryClient.invalidateQueries(describeInstances({ MaxResults: 20 }))` works without injecting anything. (`prefetchQuery`, which actually runs the `queryFn`, does require `.inject()`.)
+- **Composition inherits the requirement.** A select-only child of a factory that declares deps inherits the deps requirement automatically.
+- `.inject()` works the same on `.infinite()`: `describeInstances.infinite(params).inject({ client })`.
+
+---
+
 ## Performance
 
 TanStack Query's default `staleTime` is `0` — data is considered stale immediately, so a background refetch fires on every mount, window focus, and reconnect. For a single-page query that's one API call; for a crawling factory it's the full crawl repeated. Set `staleTime` in the factory config to match how often the underlying data actually changes:
@@ -458,19 +506,20 @@ Creates a child factory. Two overloads:
 
 All fields except `reduce` and `shouldFetchNextPage` are the standard TanStack Query API — the same types and semantics you'd pass to `useQuery` or `useInfiniteQuery`. The factory doesn't reinvent them; it just requires certain combinations to be present in order to activate crawling.
 
-| Field                               | Type                                                                                              | Notes                                                                                                                                                                                   |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `queryKey`                          | `QueryKey`                                                                                        | Namespace segments. Params are appended at call time.                                                                                                                                   |
-| `queryFn`                           | `(params: TParams, ctx: QueryFunctionContext) => TData \| Promise<TData> \| AsyncIterable<TData>` | Same as TanStack, with an extra leading `params` argument. Returns an `AsyncIterable` to use iterator-based crawling.                                                                   |
-| `select`                            | `(data: TData) => TSelected`                                                                      | Exact TanStack API. Composed automatically on child factories.                                                                                                                          |
-| `getNextPageParam`                  | `GetNextPageParamFunction<TPageParam, TData>`                                                     | Exact TanStack API. Required (with `shouldFetchNextPage`) to activate cursor-based crawling. Required (with `initialPageParam`) for `.infinite()`.                                      |
-| `initialPageParam`                  | `TPageParam`                                                                                      | Exact TanStack API. Drives `TPageParam` inference. Required for `.infinite()` to work at runtime.                                                                                       |
-| `getPreviousPageParam`              | `GetPreviousPageParamFunction<TPageParam, TData>`                                                 | Exact TanStack API. Passed through on `.infinite()`.                                                                                                                                    |
-| `shouldFetchNextPage`               | `(combined: TSelected \| undefined, crawlOptions: TCrawlOptions) => boolean`                      | Library addition. **Required to activate crawling.** Called after each page — return `true` to keep fetching, `false` to stop.                                                          |
-| `reduce`                            | `(acc: TSelected \| undefined, page: TData) => TSelected`                                         | Library addition. Optional. Folds crawled pages into a single `TSelected` value; when omitted the result is an array of all fetched raw pages (`TData[]`).                              |
-| + all `StandardQueryOptions` fields |                                                                                                   | `staleTime`, `gcTime`, `retry`, `enabled`, `refetchOnWindowFocus`, `placeholderData`, `initialData`, `meta`, etc. Function-form callbacks are supported wherever TanStack accepts them. |
+| Field                               | Type                                                                                                           | Notes                                                                                                                                                                                                                                                                           |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `queryKey`                          | `QueryKey`                                                                                                     | Namespace segments. Params are appended at call time.                                                                                                                                                                                                                           |
+| `queryFn`                           | `(params: TParams, ctx: QueryFunctionContext, deps: TDeps) => TData \| Promise<TData> \| AsyncIterable<TData>` | Same as TanStack, with an extra leading `params` argument and an optional trailing `deps` argument for non-serializable dependencies (see [Dependency injection](#dependency-injection)). Returns an `AsyncIterable` to use iterator-based crawling.                            |
+| `select`                            | `(data: TData, deps: TDeps) => TSelected`                                                                      | Exact TanStack API, plus the same injected `deps` bag as `queryFn`. Composed automatically on child factories.                                                                                                                                                                  |
+| `getNextPageParam`                  | `GetNextPageParamFunction<TPageParam, TData>`                                                                  | Exact TanStack API. Required (with `shouldFetchNextPage`) to activate cursor-based crawling. Required (with `initialPageParam`) for `.infinite()`.                                                                                                                              |
+| `initialPageParam`                  | `TPageParam`                                                                                                   | Exact TanStack API. Drives `TPageParam` inference. Required for `.infinite()` to work at runtime.                                                                                                                                                                               |
+| `getPreviousPageParam`              | `GetPreviousPageParamFunction<TPageParam, TData>`                                                              | Exact TanStack API. Passed through on `.infinite()`.                                                                                                                                                                                                                            |
+| `shouldFetchNextPage`               | `(combined: TSelected \| undefined, crawlOptions: TCrawlOptions) => boolean`                                   | Library addition. **Required to activate crawling.** Called after each page — return `true` to keep fetching, `false` to stop.                                                                                                                                                  |
+| `reduce`                            | `(acc: TSelected \| undefined, page: TData) => TSelected`                                                      | Library addition. Optional. Folds crawled pages into a single `TSelected` value; when omitted the result is an array of all fetched raw pages (`TData[]`).                                                                                                                      |
+| `deps` (3rd `queryFn` arg)          | `TDeps`                                                                                                        | Library addition. Inferred from the optional third `queryFn` parameter. A bag of non-serializable dependencies supplied at the call site via `.inject(deps)`; passed to `queryFn`/`select` but never added to the query key. See [Dependency injection](#dependency-injection). |
+| + all `StandardQueryOptions` fields |                                                                                                                | `staleTime`, `gcTime`, `retry`, `enabled`, `refetchOnWindowFocus`, `placeholderData`, `initialData`, `meta`, etc. Function-form callbacks are supported wherever TanStack accepts them.                                                                                         |
 
-### `QueryFactory<TParams, TData, TError, TSelected, TPageParam, TCrawlOptions>`
+### `QueryFactory<TParams, TData, TError, TSelected, TPageParam, TCrawlOptions, THasReduce, TDeps>`
 
 The callable factory returned by `queryFactory()`.
 
@@ -478,6 +527,8 @@ The callable factory returned by `queryFactory()`.
 factory(params: TParams, crawlOptions?: TCrawlOptions): ResolvedQueryOptions  // → useQuery()
 factory.infinite(params, crawlOptions?)                : ResolvedInfiniteOptions // → useInfiniteQuery()
 ```
+
+When the factory declares dependencies (`TDeps` is non-`void`), both calls instead return a `PendingInjection` and you must call `.inject(deps)` to obtain the usable options — see [Dependency injection](#dependency-injection).
 
 ### `ResolvedQueryOptions`
 
@@ -507,6 +558,24 @@ import type { FactoryCrawlOptions } from '@robohall/react-query-factory';
 type CrawlOpts = FactoryCrawlOptions<typeof describeInstances>; // → { minResults?: number }
 ```
 
+### `FactoryDeps<F>`
+
+Extracts the injected-dependencies type from a factory — the argument to `.inject()`. Resolves to `void` for factories that declare no dependencies.
+
+```typescript
+import type { FactoryDeps } from '@robohall/react-query-factory';
+
+type Deps = FactoryDeps<typeof describeInstances>; // → { client: EC2Client }
+```
+
+### `PendingInjection<TDeps, TResolved>`
+
+Returned by `factory(params)` / `factory.infinite(params)` when the factory declares dependencies. Carries the real `queryKey` (so it can still be passed to `invalidateQueries` and other filter APIs) but its `queryFn` is branded so the object cannot be passed to `useQuery`/`useInfiniteQuery` until `.inject(deps)` supplies the dependencies. See [Dependency injection](#dependency-injection).
+
+### `WithInjection<TDeps, TResolved>`
+
+Resolves to `TResolved` when `TDeps` is `void`, or to `PendingInjection<TDeps, TResolved>` otherwise. This is what makes `.inject()` required exactly when — and only when — a factory declares dependencies.
+
 ---
 
 ## Running the sandbox
@@ -515,4 +584,4 @@ type CrawlOpts = FactoryCrawlOptions<typeof describeInstances>; // → { minResu
 npm run sandbox
 ```
 
-Starts a Vite dev server with interactive demos covering every pattern: basic single-page fetch, async iterator queryFns, crawl-then-render, render-while-crawling, on-demand infinite pagination, client-side search with early stopping, factory composition, and scoped cache invalidation.
+Starts a Vite dev server with interactive demos covering every pattern: basic single-page fetch, async iterator queryFns, crawl-then-render, render-while-crawling, on-demand infinite pagination, client-side search with early stopping, factory composition, dependency injection, and scoped cache invalidation.

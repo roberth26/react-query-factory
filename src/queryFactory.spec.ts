@@ -1702,3 +1702,242 @@ describe('async iterable queryFn without shouldFetchNextPage', () => {
     expect(result).toEqual({ ok: true });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Dependency injection — non-serializable deps via .inject()
+//
+// A queryFn may declare a third argument: a bag of non-serializable runtime
+// dependencies supplied at the call site via `factory(params).inject(deps)`.
+// Deps are passed to queryFn/select but are NEVER added to the query key.
+// ---------------------------------------------------------------------------
+
+describe('queryFactory – .inject (dependency injection)', () => {
+  type Client = { list(orgId: string, signal: AbortSignal): Promise<User[]> };
+
+  const makeClient = (users: User[]): Client => ({
+    list: vi.fn(async (_orgId: string, _signal: AbortSignal) => users),
+  });
+
+  it('passes injected deps to the queryFn as the third argument', async () => {
+    const factory = queryFactory({
+      queryKey: ['users'],
+      queryFn: (params: { orgId: string }, c, deps: { client: Client }) =>
+        deps.client.list(params.orgId, c.signal),
+    });
+
+    const client = makeClient([{ id: 'u1', name: 'Alice' }]);
+    const opts = factory({ orgId: 'org-1' }).inject({ client });
+
+    const result = await opts.queryFn!(ctx);
+    expect(result).toEqual([{ id: 'u1', name: 'Alice' }]);
+    expect(client.list).toHaveBeenCalledWith('org-1', ctx.signal);
+  });
+
+  it('never puts injected deps into the query key', () => {
+    const factory = queryFactory({
+      queryKey: ['users'],
+      queryFn: (params: { orgId: string }, c, deps: { client: Client }) =>
+        deps.client.list(params.orgId, c.signal),
+    });
+
+    const client = makeClient([]);
+    const pending = factory({ orgId: 'org-1' });
+
+    // Key is identical before and after injection, and contains no client.
+    expect(pending.queryKey).toEqual(['users', { orgId: 'org-1' }]);
+    expect(pending.inject({ client }).queryKey).toEqual([
+      'users',
+      { orgId: 'org-1' },
+    ]);
+    expect(JSON.stringify(pending.queryKey)).not.toContain('list');
+  });
+
+  it('exposes the real query key before injection (usable as a filter)', () => {
+    const factory = queryFactory({
+      queryKey: ['users'],
+      queryFn: (params: { orgId: string }, _c, _deps: { client: Client }) =>
+        _deps.client.list(params.orgId, _c.signal),
+    });
+
+    // Invalidation only needs the key — no deps required.
+    expect(factory({ orgId: 'org-1' }).queryKey).toEqual([
+      'users',
+      { orgId: 'org-1' },
+    ]);
+  });
+
+  it('feeds the same injected deps bag to select', () => {
+    // queryFn and select share ONE deps bag; their `deps` types must agree.
+    type Deps = { client: Client; prefix: string };
+    const factory = queryFactory({
+      queryKey: ['users'],
+      queryFn: (_p: void, _c, deps: Deps) =>
+        deps.client.list('org-1', _c.signal),
+      select: (users: User[], deps: Deps) =>
+        users.map(u => `${deps.prefix}${u.name}`),
+    });
+
+    const client = makeClient([{ id: 'u1', name: 'Alice' }]);
+    const opts = factory(undefined).inject({ client, prefix: '@' });
+    expect(opts.select!([{ id: 'u1', name: 'Alice' }])).toEqual(['@Alice']);
+  });
+
+  it('threads deps through .infinite()', async () => {
+    const factory = queryFactory({
+      queryKey: ['users'],
+      queryFn: (_p: void, c, deps: { client: Client }) =>
+        deps.client.list('org-1', c.signal),
+    });
+
+    const client = makeClient([{ id: 'u1', name: 'Alice' }]);
+    const opts = factory.infinite(undefined).inject({ client });
+
+    expect(opts.queryKey).toEqual(['users', 'infinite']);
+    const page = await opts.queryFn!({ ...ctx, pageParam: undefined });
+    expect(page).toEqual([{ id: 'u1', name: 'Alice' }]);
+  });
+
+  it('inherits the deps requirement on a select-only child factory', async () => {
+    const parent = queryFactory({
+      queryKey: ['users'],
+      queryFn: (_p: void, c, deps: { client: Client }) =>
+        deps.client.list('org-1', c.signal),
+    });
+    const child = queryFactory(parent, {
+      select: (users: User[]) => users.length,
+    });
+
+    const client = makeClient([
+      { id: 'u1', name: 'Alice' },
+      { id: 'u2', name: 'Bob' },
+    ]);
+    const opts = child(undefined).inject({ client });
+    const data = await opts.queryFn!(ctx);
+    expect(opts.select!(data as User[])).toBe(2);
+  });
+
+  it('a factory without declared deps still resolves directly (no .inject)', () => {
+    const factory = queryFactory({
+      queryKey: ['users'],
+      queryFn: async () => [] as User[],
+    });
+    // No .inject in the resolved type; usable straight away.
+    expect(factory(undefined).queryKey).toEqual(['users']);
+  });
+
+  it('passes injected deps through a crawling (reduce) queryFn', async () => {
+    type Page = { items: number[]; next: string | null };
+    const factory = queryFactory({
+      queryKey: ['nums'],
+      queryFn: async (
+        _p: void,
+        c: { pageParam: string | null },
+        deps: { base: number },
+      ): Promise<Page> => {
+        const cursor = c.pageParam;
+        if (cursor == null) return { items: [deps.base + 1], next: 'c2' };
+        return { items: [deps.base + 2], next: null };
+      },
+      getNextPageParam: (p: Page) => p.next,
+      initialPageParam: null as string | null,
+      reduce: (acc: number[] | undefined, page: Page) => [
+        ...(acc ?? []),
+        ...page.items,
+      ],
+      shouldFetchNextPage: () => true,
+    });
+
+    const opts = factory(undefined).inject({ base: 100 });
+    const result = await opts.queryFn!(ctx);
+    expect(result).toEqual([101, 102]);
+  });
+
+  it('passes injected deps through an async-iterable queryFn', async () => {
+    const factory = queryFactory({
+      queryKey: ['stream'],
+      queryFn: async function* (_p: void, _c, deps: { tag: string }) {
+        yield { v: `${deps.tag}-1` };
+        yield { v: `${deps.tag}-2` };
+      },
+      shouldFetchNextPage: () => true,
+    });
+
+    const opts = factory(undefined).inject({ tag: 'x' });
+    const result = await opts.queryFn!(ctx);
+    expect(result).toEqual([{ v: 'x-1' }, { v: 'x-2' }]);
+  });
+
+  it('a child with its OWN new queryFn declares its own deps', async () => {
+    const parent = queryFactory({
+      queryKey: ['base'],
+      queryFn: async (_p: { id: string }) => [] as User[],
+    });
+    const child = queryFactory(parent, {
+      queryKey: ['child'],
+      queryFn: (_p: { id: string }, _c, deps: { factor: number }) =>
+        Promise.resolve(deps.factor * 2),
+    });
+
+    const opts = child({ id: 'x' }).inject({ factor: 21 });
+    expect(opts.queryKey).toEqual(['base', { id: 'x' }, 'child']);
+    expect(await opts.queryFn!(ctx)).toBe(42);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Type-level guarantees for .inject — these are enforced by tsc (strict).
+// ---------------------------------------------------------------------------
+
+describe('queryFactory – .inject types', () => {
+  type Client = { list(): Promise<User[]> };
+
+  it('factory(params) returns a PendingInjection when deps are declared', () => {
+    const factory = queryFactory({
+      queryKey: ['users'],
+      queryFn: (_p: void, _c, deps: { client: Client }) => deps.client.list(),
+    });
+
+    // The pending result carries .inject and the real queryKey…
+    expectTypeOf(factory(undefined).inject)
+      .parameter(0)
+      .toEqualTypeOf<{ client: Client }>();
+    expectTypeOf(factory(undefined).queryKey).toEqualTypeOf<QueryKey>();
+
+    // …and is NOT directly assignable to useQuery options (forces .inject()).
+    expectTypeOf(factory(undefined)).not.toMatchTypeOf<
+      UseQueryOptions<User[], Error, User[], QueryKey>
+    >();
+
+    // After injection it IS a normal resolved options object.
+    expectTypeOf(
+      factory(undefined).inject({ client: { list: async () => [] } }),
+    ).toMatchTypeOf<ResolvedQueryOptions<User[], Error, User[]>>();
+  });
+
+  it('factory(params) resolves directly (no .inject) when no deps are declared', () => {
+    const factory = queryFactory({
+      queryKey: ['users'],
+      queryFn: async () => [] as User[],
+    });
+    expectTypeOf(factory(undefined)).toMatchTypeOf<
+      ResolvedQueryOptions<User[], Error, User[]>
+    >();
+    // @ts-expect-error — no deps declared, so .inject does not exist
+    factory(undefined).inject({});
+  });
+
+  it('.infinite() also requires .inject() when deps are declared', () => {
+    const factory = queryFactory({
+      queryKey: ['users'],
+      queryFn: (_p: void, _c, deps: { client: Client }) => deps.client.list(),
+    });
+
+    expectTypeOf(factory.infinite(undefined).inject)
+      .parameter(0)
+      .toEqualTypeOf<{ client: Client }>();
+    // Pending infinite options are not directly assignable to useInfiniteQuery.
+    expectTypeOf(factory.infinite(undefined)).not.toMatchTypeOf<
+      UseInfiniteQueryOptions<User[], Error, InfiniteData<User[]>, QueryKey>
+    >();
+  });
+});
