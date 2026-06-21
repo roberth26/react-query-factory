@@ -1,6 +1,6 @@
 import { CodeView } from '@cloudscape-design/code-view';
 import highlight from '@cloudscape-design/code-view/highlight/typescript';
-import { Box, StatusIndicator } from '@cloudscape-design/components';
+import { Box, Button, StatusIndicator } from '@cloudscape-design/components';
 import type { Instance, InstanceState } from './aws-sdk-mock.js';
 
 export const PAGE_SIZE_OPTIONS = [
@@ -11,6 +11,26 @@ export const PAGE_SIZE_OPTIONS = [
 
 export function CodeBlock({ code }: { code: string }) {
   return <CodeView content={code.trim()} highlight={highlight} lineNumbers />;
+}
+
+/** Refresh button for a Table header's `actions` slot. `loading` reflects the
+ *  query's in-flight state so the icon spins while refetching. */
+export function RefreshButton({
+  onClick,
+  loading,
+}: {
+  onClick: () => void;
+  loading?: boolean;
+}) {
+  return (
+    <Button
+      iconName="refresh"
+      ariaLabel="Refresh"
+      data-testid="refresh-button"
+      loading={loading}
+      onClick={onClick}
+    />
+  );
 }
 
 export function instanceName(inst: Instance) {

@@ -11,7 +11,6 @@ import {
   Header,
   Pagination,
   SpaceBetween,
-  Spinner,
   Table,
   TextContent,
   TextFilter,
@@ -20,6 +19,7 @@ import {
   CodeBlock,
   INSTANCE_COLUMN_DEFS,
   PAGE_SIZE_OPTIONS,
+  RefreshButton,
 } from '../shared.js';
 
 export const handle = { label: 'Render-while-crawling', source: pageSource };
@@ -41,13 +41,20 @@ function RenderWhileCrawlingPage() {
   const { pageSize } = preferences;
   const apiCallsPerBatch = Math.ceil(pageSize / SERVER_PAGE_SIZE);
 
-  const { data, isLoading, isFetchingNextPage, hasNextPage, fetchNextPage } =
-    useInfiniteQuery(
-      describeInstances.infinite(
-        { MaxResults: SERVER_PAGE_SIZE },
-        { minResults: pageSize },
-      ),
-    );
+  const {
+    data,
+    isLoading,
+    isFetching,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
+    refetch,
+  } = useInfiniteQuery(
+    describeInstances.infinite(
+      { MaxResults: SERVER_PAGE_SIZE },
+      { minResults: pageSize },
+    ),
+  );
 
   const factoryCode = `\
 // minResults matches the UI page size — each virtual page crawls until it's full.
@@ -147,7 +154,12 @@ useEffect(() => {
                 ? 'Streaming — search spans only instances loaded so far'
                 : 'All 95 instances loaded — search spans the full dataset'
             }
-            actions={isStreaming ? <Spinner /> : undefined}
+            actions={
+              <RefreshButton
+                onClick={() => refetch()}
+                loading={isStreaming || isFetching}
+              />
+            }
           >
             Instances — render-while-crawling
           </Header>

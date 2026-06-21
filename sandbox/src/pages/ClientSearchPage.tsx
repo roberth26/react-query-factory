@@ -21,6 +21,7 @@ import {
   CodeBlock,
   INSTANCE_COLUMN_DEFS,
   PAGE_SIZE_OPTIONS,
+  RefreshButton,
 } from '../shared.js';
 
 export const handle = { label: 'Client-side search', source: pageSource };
@@ -46,7 +47,7 @@ function ClientSearchPage() {
   const [targetId, setTargetId] = useState<string | undefined>(undefined);
   const [preferences, setPreferences] = useState({ pageSize: 10 });
 
-  const { data, isLoading, isFetching } = useQuery({
+  const { data, isLoading, isFetching, refetch } = useQuery({
     ...findInstance({ MaxResults: 5 }, { instanceId: targetId }),
     enabled: targetId != null,
   });
@@ -149,7 +150,13 @@ function ClientSearchPage() {
             />
           }
           header={
-            <Header variant="h2" counter={`(${data.length} scanned)`}>
+            <Header
+              variant="h2"
+              counter={`(${data.length} scanned)`}
+              actions={
+                <RefreshButton onClick={() => refetch()} loading={isFetching} />
+              }
+            >
               Scanned instances
             </Header>
           }

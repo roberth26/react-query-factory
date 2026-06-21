@@ -4,4 +4,7 @@ sandbox/node_modules
 sandbox/dist
 sandbox/tsconfig.tsbuildinfo
 sandbox/test-results
+sandbox/playwright-report
+sandbox/blob-report
+sandbox/.cache
 .claude/settings.local.json

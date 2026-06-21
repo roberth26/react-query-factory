@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useLoaderData } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useSuspenseQuery } from '@tanstack/react-query';
 import { useCollection } from '@cloudscape-design/collection-hooks';
 import type { AvailabilityZone } from '../aws-sdk-mock.js';
 import { describeAvailabilityZones } from '../queries.js';
@@ -13,13 +13,12 @@ import {
   Header,
   Pagination,
   SpaceBetween,
-  Spinner,
   StatusIndicator,
   Table,
   TextContent,
   TextFilter,
 } from '@cloudscape-design/components';
-import { CodeBlock, PAGE_SIZE_OPTIONS } from '../shared.js';
+import { CodeBlock, PAGE_SIZE_OPTIONS, RefreshButton } from '../shared.js';
 
 export const handle = { label: 'Basic', source: pageSource };
 
@@ -30,7 +29,8 @@ const describeAvailabilityZones = queryFactory({
     ec2.send(new DescribeAvailabilityZonesCommand(), { abortSignal: ctx.signal }),
 });
 
-const { data } = useQuery(describeAvailabilityZones());
+// useSuspenseQuery → data is AvailabilityZonesResult, never undefined
+const { data } = useSuspenseQuery(describeAvailabilityZones());
 // data.AvailabilityZones → AvailabilityZone[]  (single API call)`;
 
 export async function loader() {
@@ -42,10 +42,10 @@ export async function loader() {
 function BasicPage() {
   const options = useLoaderData<Awaited<ReturnType<typeof loader>>>();
   const [preferences, setPreferences] = useState({ pageSize: 10 });
-  const { data, isLoading, isFetching } = useQuery(options);
+  const { data, isFetching, refetch } = useSuspenseQuery(options);
 
   const { items, filterProps, paginationProps, collectionProps } =
-    useCollection(data?.AvailabilityZones ?? [], {
+    useCollection(data.AvailabilityZones ?? [], {
       filtering: {},
       pagination: { pageSize: preferences.pageSize },
       sorting: {},
@@ -73,8 +73,6 @@ function BasicPage() {
       <Table
         stripedRows
         {...collectionProps}
-        loading={isLoading}
-        loadingText="Loading availability zones…"
         items={items}
         columnDefinitions={[
           {
@@ -121,10 +119,10 @@ function BasicPage() {
         header={
           <Header
             variant="h2"
-            counter={
-              data ? `(${data.AvailabilityZones?.length ?? 0})` : undefined
+            counter={`(${data.AvailabilityZones?.length ?? 0})`}
+            actions={
+              <RefreshButton onClick={() => refetch()} loading={isFetching} />
             }
-            actions={isFetching && !isLoading ? <Spinner /> : undefined}
           >
             Availability Zones
           </Header>

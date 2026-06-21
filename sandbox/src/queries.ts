@@ -24,6 +24,20 @@ export const describeAvailabilityZones = queryFactory({
     }),
 });
 
+// Dependency injection: the EC2 client is a non-serializable runtime dependency
+// (here it comes from React context). It's declared as the third queryFn argument
+// and supplied at the call site via `.inject({ client })`, so it is passed to the
+// queryFn but is NEVER part of the query key — the key is just the natural resource
+// namespace. Because the factory declares deps, `.inject()` is required before the
+// options can be handed to useQuery.
+export const describeInstanceTypesWithClient = queryFactory({
+  queryKey: ['ec2:DescribeInstanceTypes'],
+  queryFn: (_: void, ctx, deps: { client: EC2Client }) =>
+    deps.client.send(new DescribeInstanceTypesCommand({ MaxResults: 100 }), {
+      abortSignal: ctx.signal,
+    }),
+});
+
 export const describeInstances = queryFactory({
   queryKey: ['ec2:DescribeInstances'],
   queryFn: (params: DescribeInstancesRequest, ctx) =>

@@ -1,6 +1,10 @@
 import { useState } from 'react';
 import { useLoaderData } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  useSuspenseQuery,
+  useMutation,
+  useQueryClient,
+} from '@tanstack/react-query';
 import { useCollection } from '@cloudscape-design/collection-hooks';
 import type { Instance } from '../aws-sdk-mock.js';
 import { StopInstancesCommand } from '../aws-sdk-mock.js';
@@ -22,7 +26,6 @@ import {
   Header,
   Pagination,
   SpaceBetween,
-  Spinner,
   Table,
   TextContent,
   TextFilter,
@@ -31,6 +34,7 @@ import {
   CodeBlock,
   INSTANCE_COLUMN_DEFS,
   PAGE_SIZE_OPTIONS,
+  RefreshButton,
 } from '../shared.js';
 import { useNotifications } from '../notifications.js';
 
@@ -47,9 +51,10 @@ const stoppedInstances = queryFactory(describeInstances, {
   select: instances => instances.filter(i => i.State.Name === 'stopped'),
 });
 
-const { data: all }     = useQuery(describeInstances({ MaxResults: 20 }));
-const { data: running } = useQuery(runningInstances({ MaxResults: 20 }));
-const { data: stopped } = useQuery(stoppedInstances({ MaxResults: 20 }));
+// All three share one cache entry — useSuspenseQuery → data is never undefined.
+const { data: all }     = useSuspenseQuery(describeInstances({ MaxResults: 20 }));
+const { data: running } = useSuspenseQuery(runningInstances({ MaxResults: 20 }));
+const { data: stopped } = useSuspenseQuery(stoppedInstances({ MaxResults: 20 }));
 
 // One invalidation updates all three views:
 queryClient.invalidateQueries(describeInstances())`;
@@ -60,11 +65,11 @@ export async function loader() {
   return options;
 }
 
-function Stat({ label, value }: { label: string; value: number | undefined }) {
+function Stat({ label, value }: { label: string; value: number }) {
   return (
     <div>
       <Box variant="awsui-key-label">{label}</Box>
-      <Box variant="h1">{value ?? <Spinner />}</Box>
+      <Box variant="h1">{value}</Box>
     </div>
   );
 }
@@ -76,9 +81,13 @@ function CompositionPage() {
   const [stoppingIds, setStoppingIds] = useState<Set<string>>(new Set());
   const [preferences, setPreferences] = useState({ pageSize: 20 });
 
-  const { data: all, isLoading, isFetching } = useQuery(options);
-  const { data: running } = useQuery(runningInstances({ MaxResults: 20 }));
-  const { data: stopped } = useQuery(stoppedInstances({ MaxResults: 20 }));
+  const { data: all, isFetching, refetch } = useSuspenseQuery(options);
+  const { data: running } = useSuspenseQuery(
+    runningInstances({ MaxResults: 20 }),
+  );
+  const { data: stopped } = useSuspenseQuery(
+    stoppedInstances({ MaxResults: 20 }),
+  );
 
   const { mutate: stopInstance } = useMutation({
     mutationFn: (instanceId: string) =>
@@ -99,7 +108,7 @@ function CompositionPage() {
   });
 
   const { items, filterProps, paginationProps, collectionProps } =
-    useCollection(all ?? [], {
+    useCollection(all, {
       filtering: {},
       pagination: { pageSize: preferences.pageSize },
       sorting: {},
@@ -148,15 +157,14 @@ function CompositionPage() {
       </ExpandableSection>
       <Container header={<Header variant="h2">Instance summary</Header>}>
         <ColumnLayout columns={3} variant="text-grid">
-          <Stat label="Total" value={all?.length} />
-          <Stat label="Running" value={running?.length} />
-          <Stat label="Stopped" value={stopped?.length} />
+          <Stat label="Total" value={all.length} />
+          <Stat label="Running" value={running.length} />
+          <Stat label="Stopped" value={stopped.length} />
         </ColumnLayout>
       </Container>
       <Table
         stripedRows
         {...collectionProps}
-        loading={isLoading}
         items={items}
         columnDefinitions={[...INSTANCE_COLUMN_DEFS, stopColumnDef]}
         filter={
@@ -184,9 +192,11 @@ function CompositionPage() {
         header={
           <Header
             variant="h2"
-            counter={all ? `(${all.length})` : undefined}
+            counter={`(${all.length})`}
             description="Stop an instance — the summary counts above update automatically."
-            actions={isFetching && !isLoading ? <Spinner /> : undefined}
+            actions={
+              <RefreshButton onClick={() => refetch()} loading={isFetching} />
+            }
           >
             All instances
           </Header>

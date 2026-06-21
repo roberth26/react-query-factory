@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { Suspense, useState, useEffect } from 'react';
 import {
   useNavigate,
   useMatches,
@@ -41,6 +41,7 @@ const NAV_ITEMS = [
       { type: 'link', text: 'On demand', href: '/on-demand' },
       { type: 'link', text: 'Client-side search', href: '/client-search' },
       { type: 'link', text: 'Composition', href: '/composition' },
+      { type: 'link', text: 'Dependency injection', href: '/injection' },
       { type: 'link', text: 'Invalidation', href: '/invalidate' },
     ],
   },
@@ -145,7 +146,15 @@ export default function App() {
             ) : showSource && source ? (
               <CodeBlock code={source} />
             ) : (
-              <Outlet />
+              <Suspense
+                fallback={
+                  <Box padding={{ top: 'xxxl' }} textAlign="center">
+                    <Spinner size="large" />
+                  </Box>
+                }
+              >
+                <Outlet />
+              </Suspense>
             )}
           </ContentLayout>
         }

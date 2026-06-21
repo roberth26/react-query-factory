@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useLoaderData } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useSuspenseQuery } from '@tanstack/react-query';
 import { useCollection } from '@cloudscape-design/collection-hooks';
 import type {
   DescribeInstancesRequest,
@@ -18,7 +18,6 @@ import {
   Pagination,
   Select,
   SpaceBetween,
-  Spinner,
   Table,
   TextContent,
   TextFilter,
@@ -27,6 +26,7 @@ import {
   CodeBlock,
   INSTANCE_COLUMN_DEFS,
   PAGE_SIZE_OPTIONS,
+  RefreshButton,
 } from '../shared.js';
 
 export const handle = { label: 'Crawl-then-render', source: pageSource };
@@ -46,7 +46,8 @@ const describeInstanceTypes = queryFactory({
 
 // Both queries run in parallel. instanceTypes populates the Select;
 // describeInstances re-crawls whenever the selected type changes.
-const { data: instanceTypes } = useQuery(
+// useSuspenseQuery → instanceTypes is ready (and never undefined) before render
+const { data: instanceTypes } = useSuspenseQuery(
   describeInstanceTypes({ MaxResults: 10 }, { minResults: Number.MAX_SAFE_INTEGER }),
 );
 const { data: instances } = useQuery(
@@ -69,21 +70,24 @@ export async function loader() {
 }
 
 function CrawlThenRenderPage() {
-  const instanceTypesOptions = useLoaderData<Awaited<ReturnType<typeof loader>>>();
+  const instanceTypesOptions =
+    useLoaderData<Awaited<ReturnType<typeof loader>>>();
   const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
   const [preferences, setPreferences] = useState({ pageSize: 20 });
 
-  const { data: instanceTypes, isLoading: typesLoading } =
-    useQuery(instanceTypesOptions);
+  const { data: instanceTypes } = useSuspenseQuery(instanceTypesOptions);
 
   const filters: DescribeInstancesRequest['Filters'] =
     selectedTypes.length > 0
       ? [{ Name: 'instance-type', Values: selectedTypes }]
       : undefined;
 
-  const { data: instances, isLoading: instancesLoading } = useQuery(
-    describeInstances({ MaxResults: 20, Filters: filters }),
-  );
+  const {
+    data: instances,
+    isLoading: instancesLoading,
+    isFetching: instancesFetching,
+    refetch: refetchInstances,
+  } = useQuery(describeInstances({ MaxResults: 20, Filters: filters }));
 
   const { items, filterProps, paginationProps, collectionProps } =
     useCollection(instances ?? [], {
@@ -92,7 +96,7 @@ function CrawlThenRenderPage() {
       sorting: {},
     });
 
-  const typeOptions = (instanceTypes ?? []).map((t: InstanceTypeInfo) => ({
+  const typeOptions = instanceTypes.map((t: InstanceTypeInfo) => ({
     value: t.InstanceType!,
     label: t.InstanceType!,
     description: `${t.VCpuInfo?.DefaultVCpus} vCPU · ${((t.MemoryInfo?.SizeInMiB ?? 0) / 1024).toFixed(t.MemoryInfo?.SizeInMiB! >= 1024 ? 0 : 1)} GiB${!t.CurrentGeneration ? ' · previous gen' : ''}`,
@@ -123,31 +127,23 @@ function CrawlThenRenderPage() {
       <Container header={<Header variant="h2">Filter by instance type</Header>}>
         <FormField
           label="Instance type"
-          description={
-            typesLoading
-              ? 'Crawling all instance types…'
-              : `${typeOptions.length} types available (crawled across ${Math.ceil(typeOptions.length / 10)} API calls)`
-          }
+          description={`${typeOptions.length} types available (crawled across ${Math.ceil(typeOptions.length / 10)} API calls)`}
         >
-          {typesLoading ? (
-            <Spinner />
-          ) : (
-            <Select
-              selectedOption={
-                selectedTypes[0]
-                  ? { value: selectedTypes[0], label: selectedTypes[0] }
-                  : null
-              }
-              onChange={({ detail }) =>
-                setSelectedTypes(
-                  detail.selectedOption ? [detail.selectedOption.value!] : [],
-                )
-              }
-              options={[{ value: '', label: 'All types' }, ...typeOptions]}
-              placeholder="Select an instance type…"
-              filteringType="auto"
-            />
-          )}
+          <Select
+            selectedOption={
+              selectedTypes[0]
+                ? { value: selectedTypes[0], label: selectedTypes[0] }
+                : null
+            }
+            onChange={({ detail }) =>
+              setSelectedTypes(
+                detail.selectedOption ? [detail.selectedOption.value!] : [],
+              )
+            }
+            options={[{ value: '', label: 'All types' }, ...typeOptions]}
+            placeholder="Select an instance type…"
+            filteringType="auto"
+          />
         </FormField>
       </Container>
       <Table
@@ -183,6 +179,12 @@ function CrawlThenRenderPage() {
           <Header
             variant="h2"
             counter={instances ? `(${instances.length})` : undefined}
+            actions={
+              <RefreshButton
+                onClick={() => refetchInstances()}
+                loading={instancesFetching}
+              />
+            }
           >
             {selectedTypes[0]
               ? `${selectedTypes[0]} instances`

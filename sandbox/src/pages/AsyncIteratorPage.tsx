@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useLoaderData } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useSuspenseQuery } from '@tanstack/react-query';
 import { useCollection } from '@cloudscape-design/collection-hooks';
 import { describeInstancesViaPaginator } from '../queries.js';
 import { queryClient } from '../queryClient.js';
@@ -19,6 +19,7 @@ import {
   CodeBlock,
   INSTANCE_COLUMN_DEFS,
   PAGE_SIZE_OPTIONS,
+  RefreshButton,
 } from '../shared.js';
 
 export const handle = { label: 'Async iterator', source: pageSource };
@@ -52,10 +53,10 @@ function AsyncIteratorPage() {
   const options = useLoaderData<Awaited<ReturnType<typeof loader>>>();
   const [preferences, setPreferences] = useState({ pageSize: 20 });
 
-  const { data, isLoading } = useQuery(options);
+  const { data, isFetching, refetch } = useSuspenseQuery(options);
 
   const { items, filterProps, paginationProps, collectionProps } =
-    useCollection(data ?? [], {
+    useCollection(data, {
       filtering: {},
       pagination: { pageSize: preferences.pageSize },
       sorting: {},
@@ -85,8 +86,6 @@ function AsyncIteratorPage() {
       <Table
         stripedRows
         {...collectionProps}
-        loading={isLoading}
-        loadingText="Crawling via paginator…"
         items={items}
         columnDefinitions={INSTANCE_COLUMN_DEFS}
         filter={
@@ -112,7 +111,13 @@ function AsyncIteratorPage() {
           />
         }
         header={
-          <Header variant="h2" counter={data ? `(${data.length})` : undefined}>
+          <Header
+            variant="h2"
+            counter={`(${data.length})`}
+            actions={
+              <RefreshButton onClick={() => refetch()} loading={isFetching} />
+            }
+          >
             Instances — async iterator crawl
           </Header>
         }

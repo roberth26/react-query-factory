@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
     "@cloudscape-design/code-view": "^3.0.136",
@@ -25,6 +27,7 @@
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.49.1",
     "@types/node": "^25.9.1",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",

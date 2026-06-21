@@ -32,6 +32,7 @@ export const router = createBrowserRouter([
         lazy: () => import('./pages/ClientSearchPage.js'),
       },
       { path: 'composition', lazy: () => import('./pages/CompositionPage.js') },
+      { path: 'injection', lazy: () => import('./pages/InjectionPage.js') },
       { path: 'invalidate', lazy: () => import('./pages/InvalidationPage.js') },
     ],
   },

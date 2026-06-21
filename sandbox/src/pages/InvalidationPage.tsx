@@ -14,7 +14,6 @@ import {
   Header,
   Pagination,
   SpaceBetween,
-  Spinner,
   Table,
   TextContent,
   TextFilter,
@@ -23,6 +22,7 @@ import {
   CodeBlock,
   INSTANCE_COLUMN_DEFS,
   PAGE_SIZE_OPTIONS,
+  RefreshButton,
 } from '../shared.js';
 import { useNotifications } from '../notifications.js';
 
@@ -57,13 +57,14 @@ export async function loader() {
 }
 
 function InvalidationPage() {
-  const { instancesOptions, runningOptions } = useLoaderData<Awaited<ReturnType<typeof loader>>>();
+  const { instancesOptions, runningOptions } =
+    useLoaderData<Awaited<ReturnType<typeof loader>>>();
   const queryClient = useQueryClient();
   const { addNotification } = useNotifications();
   const [stoppingIds, setStoppingIds] = useState<Set<string>>(new Set());
   const [preferences, setPreferences] = useState({ pageSize: 20 });
 
-  const { data, isLoading, isFetching } = useQuery(instancesOptions);
+  const { data, isLoading, isFetching, refetch } = useQuery(instancesOptions);
   const { data: running } = useQuery(runningOptions);
 
   const { mutate: stopInstance } = useMutation({
@@ -172,7 +173,9 @@ function InvalidationPage() {
                 : undefined
             }
             description="Stopping an instance uses broad invalidation here — but the same pattern supports scoped invalidation to a single param set. See the factory code snippet."
-            actions={isFetching && !isLoading ? <Spinner /> : undefined}
+            actions={
+              <RefreshButton onClick={() => refetch()} loading={isFetching} />
+            }
           >
             Instances — stop &amp; invalidate
           </Header>

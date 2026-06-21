@@ -21,6 +21,7 @@ import {
   CodeBlock,
   INSTANCE_COLUMN_DEFS,
   PAGE_SIZE_OPTIONS,
+  RefreshButton,
 } from '../shared.js';
 
 export const handle = { label: 'On demand', source: pageSource };
@@ -43,13 +44,20 @@ function OnDemandPage() {
   const { pageSize } = preferences;
   const apiCallsPerPage = Math.ceil(pageSize / SERVER_PAGE_SIZE);
 
-  const { data, isLoading, isFetchingNextPage, hasNextPage, fetchNextPage } =
-    useInfiniteQuery(
-      describeInstances.infinite(
-        { MaxResults: SERVER_PAGE_SIZE },
-        { minResults: pageSize },
-      ),
-    );
+  const {
+    data,
+    isLoading,
+    isFetching,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
+    refetch,
+  } = useInfiniteQuery(
+    describeInstances.infinite(
+      { MaxResults: SERVER_PAGE_SIZE },
+      { minResults: pageSize },
+    ),
+  );
 
   const pages = (data?.pages ?? []) as Instance[][];
   const currentItems = pages[currentPage - 1] ?? [];
@@ -143,12 +151,18 @@ useInfiniteQuery(
             counter={totalLoaded > 0 ? `(${totalLoaded} loaded)` : undefined}
             description={`${apiCallsPerPage} API call${apiCallsPerPage !== 1 ? 's' : ''} per page · server page size: ${SERVER_PAGE_SIZE}`}
             actions={
-              isFetchingNextPage ? (
-                <SpaceBetween direction="horizontal" size="xs">
-                  <Spinner />
-                  <Box>Crawling next page…</Box>
-                </SpaceBetween>
-              ) : undefined
+              <SpaceBetween direction="horizontal" size="xs">
+                {isFetchingNextPage && (
+                  <SpaceBetween direction="horizontal" size="xs">
+                    <Spinner />
+                    <Box>Crawling next page…</Box>
+                  </SpaceBetween>
+                )}
+                <RefreshButton
+                  onClick={() => refetch()}
+                  loading={isFetching && !isFetchingNextPage}
+                />
+              </SpaceBetween>
             }
           >
             Instances — infinite pagination
